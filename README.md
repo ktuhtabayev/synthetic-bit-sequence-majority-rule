@@ -98,7 +98,6 @@ The PyQt6 app is a local research dashboard. It provides:
 - window geometry and last-used controls persist between sessions
 - grouped result tabs:
   - Dataset
-  - Final Comparison
   - Distances
   - Neighbors
   - Majority A/B
@@ -108,6 +107,7 @@ The PyQt6 app is a local research dashboard. It provides:
   - Stability Plot
   - Synthetic Features Space
   - Meta Objects, including `Complexity C(Q)` and `None vs MinMax`
+  - Final Comparison
 
 The Run button computes the selected pipeline, automatically derives the paired
 `none`/`minmax` comparison, and writes outputs immediately.

@@ -481,7 +481,6 @@ class MainWindow(QMainWindow):
         self.tabs.clear()
         branch = result.selected_branch
         self.tabs.addTab(frame_to_table(branch.dataset.to_frame()), "Dataset")
-        self.tabs.addTab(frame_to_table(branch.final_comparison.to_frame()), "Final Comparison")
         self.tabs.addTab(self._distance_tabs(branch), "Distances")
         self.tabs.addTab(self._neighbor_tabs(branch), "Neighbors")
         self.tabs.addTab(self._majority_tabs(branch), "Majority A/B")
@@ -491,6 +490,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._stability_plot_tab(), "Stability Plot")
         self.tabs.addTab(self._synthetic_features_space_tab(branch), "Synthetic Features Space")
         self.tabs.addTab(self._meta_objects_tab(branch), "Meta Objects")
+        self.tabs.addTab(frame_to_table(branch.final_comparison.to_frame()), "Final Comparison")
 
     def _simple_metric_tabs(
         self,
