@@ -40,8 +40,6 @@ experiments:
       reduced_order_mode: follow_reduced_k_values
 
     exports:
-      csv: true
-      json: true
       excel: false
 
   - name: minmax_all_metrics_default_csv
@@ -79,8 +77,6 @@ experiments:
       reduced_order_mode: follow_reduced_k_values
 
     exports:
-      csv: true
-      json: true
       excel: false
 
   - name: zscore_all_metrics_default_csv
@@ -118,8 +114,6 @@ experiments:
       reduced_order_mode: follow_reduced_k_values
 
     exports:
-      csv: true
-      json: true
       excel: false
 
   - name: no_normalization_all_metrics_default_dat
@@ -157,8 +151,6 @@ experiments:
       reduced_order_mode: follow_reduced_k_values
 
     exports:
-      csv: true
-      json: true
       excel: false
 
   - name: minmax_all_metrics_default_dat
@@ -196,8 +188,6 @@ experiments:
       reduced_order_mode: follow_reduced_k_values
 
     exports:
-      csv: true
-      json: true
       excel: false
 
   - name: zscore_all_metrics_default_dat
@@ -235,8 +225,6 @@ experiments:
       reduced_order_mode: follow_reduced_k_values
 
     exports:
-      csv: true
-      json: true
       excel: false
 
 notes:

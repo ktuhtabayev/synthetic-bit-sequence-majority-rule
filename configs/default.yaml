@@ -4,11 +4,8 @@ project:
 
 run:
   run_name: default_run
-  random_seed: 42
   save_outputs: true
   output_root: outputs/runs
-  figures_dir: outputs/figures
-  logs_dir: outputs/logs
 
 # ============================================================
 # ACTIVE DATASET CONFIGURATION
@@ -214,14 +211,10 @@ preprocessing:
   normalization:
     mode: none        # options: none, minmax, zscore
     apply_before_distance: true
-
-    Future-ready notes:
+    # Future-ready notes:
     # - minmax  = Min–Max Normalization (Rescaling)
     # - zscore  = Z-score Normalization (Standardization)
     # Additional normalization methods can be added later.
-
-  missing_values:
-    strategy: error
 
 metrics:
   enabled:
@@ -280,8 +273,7 @@ exports:
   reduced_b_matrices: true
   stats_tables: true
   final_comparison: true
-  csv: true
-  json: true
+  # CSV tables and run_info.json are always written.
   excel: false
 
 quick_tests:

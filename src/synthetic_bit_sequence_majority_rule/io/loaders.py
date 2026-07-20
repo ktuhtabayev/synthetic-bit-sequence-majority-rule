@@ -463,9 +463,11 @@ def _load_csv(path: Path, dataset_config: DatasetConfig) -> LoadedDataset:
     Supports:
     1. matrix-style datasets
     2. headered table datasets
+
+    has_header=False forces the matrix-style parse for CSVs whose first
+    row is plain data, since a headered parse would swallow that row.
     """
-    # First, detect matrix-style robustly.
-    if _detect_matrix_style_text_file(path, dataset_config.delimiter):
+    if not dataset_config.has_header or _detect_matrix_style_text_file(path, dataset_config.delimiter):
         return _parse_matrix_style_dataset(
             path=path,
             delimiter=dataset_config.delimiter,

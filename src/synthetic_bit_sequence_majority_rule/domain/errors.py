@@ -182,17 +182,6 @@ class NormalizationError(PreprocessingError):
         super().__init__(f"Normalization failed for mode '{self.mode}': {self.reason}")
 
 
-class MissingValueHandlingError(PreprocessingError):
-    """
-    Raised when missing-value handling fails.
-    """
-
-    def __init__(self, strategy: str, reason: str) -> None:
-        self.strategy = strategy
-        self.reason = reason
-        super().__init__(f"Missing value handling failed for strategy '{self.strategy}': {self.reason}")
-
-
 # ============================================================
 # Distance / neighbors / majority-rule errors
 # ============================================================

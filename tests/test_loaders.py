@@ -47,6 +47,24 @@ def test_ionosfera_csv_and_dat_load_with_same_core_data() -> None:
     assert np.array_equal(csv_dataset.y, dat_dataset.y)
 
 
+def test_headerless_csv_without_shape_row_respects_has_header_false(tmp_path: Path) -> None:
+    path = tmp_path / "headerless.csv"
+    path.write_text(
+        "1.0,2.0,3.0,1\n"
+        "2.0,3.0,4.0,1\n"
+        "8.0,9.0,7.0,2\n"
+        "9.0,8.0,6.0,2\n",
+        encoding="utf-8",
+    )
+
+    dataset = load_dataset_from_path(path, has_header=False)
+
+    assert dataset.n_objects == 4
+    assert dataset.n_features == 3
+    assert dataset.class_counts == {1: 2, 2: 2}
+    assert np.allclose(dataset.X[0], [1.0, 2.0, 3.0])
+
+
 def test_ionosfera_metadata_treats_all_features_as_quantitative() -> None:
     project_root = Path(__file__).resolve().parents[1]
     path = (

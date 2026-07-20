@@ -216,11 +216,8 @@ def config_to_dict(config: AppConfig) -> dict[str, Any]:
         },
         "run": {
             "run_name": config.run.run_name,
-            "random_seed": config.run.random_seed,
             "save_outputs": config.run.save_outputs,
             "output_root": str(config.run.output_root),
-            "figures_dir": str(config.run.figures_dir),
-            "logs_dir": str(config.run.logs_dir),
         },
         "dataset": {
             "path": str(config.dataset.path),
@@ -240,9 +237,6 @@ def config_to_dict(config: AppConfig) -> dict[str, Any]:
             "normalization": {
                 "mode": config.preprocessing.normalization.mode,
                 "apply_before_distance": config.preprocessing.normalization.apply_before_distance,
-            },
-            "missing_values": {
-                "strategy": config.preprocessing.missing_values.strategy,
             },
         },
         "metrics": {
@@ -288,8 +282,6 @@ def config_to_dict(config: AppConfig) -> dict[str, Any]:
             "reduced_b_matrices": config.exports.reduced_b_matrices,
             "stats_tables": config.exports.stats_tables,
             "final_comparison": config.exports.final_comparison,
-            "csv": config.exports.csv,
-            "json": config.exports.json,
             "excel": config.exports.excel,
         },
         "notes": {

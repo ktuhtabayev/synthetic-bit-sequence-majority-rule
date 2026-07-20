@@ -6,7 +6,6 @@ from typing import Any, Literal, Mapping, Sequence
 
 
 NormalizationMode = Literal["none", "minmax", "zscore"]
-MissingValueStrategy = Literal["error", "drop_rows", "fill_zero"]
 DistanceMetricName = Literal["euclidean", "chebyshev", "canberra", "manhattan"]
 TieBreakRule = Literal["index_ascending"]
 MajorityComparison = Literal["strict_greater", "greater_or_equal"]
@@ -72,17 +71,12 @@ class ProjectConfig:
 @dataclass(slots=True)
 class RunConfig:
     run_name: str = "default_run"
-    random_seed: int = 42
     save_outputs: bool = True
     output_root: Path = Path("outputs/runs")
-    figures_dir: Path = Path("outputs/figures")
-    logs_dir: Path = Path("outputs/logs")
 
     def validate(self) -> None:
         if not self.run_name.strip():
             raise ValueError("run.run_name cannot be empty.")
-        if self.random_seed < 0:
-            raise ValueError("run.random_seed must be non-negative.")
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any] | None) -> "RunConfig":
@@ -91,11 +85,8 @@ class RunConfig:
         d = _ensure_mapping(data, "run")
         cfg = cls(
             run_name=str(d.get("run_name", cls.run_name)),
-            random_seed=int(d.get("random_seed", cls.random_seed)),
             save_outputs=bool(d.get("save_outputs", cls.save_outputs)),
             output_root=_to_path(d.get("output_root")) or cls.output_root,
-            figures_dir=_to_path(d.get("figures_dir")) or cls.figures_dir,
-            logs_dir=_to_path(d.get("logs_dir")) or cls.logs_dir,
         )
         cfg.validate()
         return cfg
@@ -207,35 +198,12 @@ class NormalizationConfig:
 
 
 @dataclass(slots=True)
-class MissingValuesConfig:
-    strategy: MissingValueStrategy = "error"
-
-    def validate(self) -> None:
-        allowed = {"error", "drop_rows", "fill_zero"}
-        if self.strategy not in allowed:
-            raise ValueError(f"preprocessing.missing_values.strategy must be one of {sorted(allowed)}.")
-
-    @classmethod
-    def from_dict(cls, data: Mapping[str, Any] | None) -> "MissingValuesConfig":
-        if data is None:
-            cfg = cls()
-            cfg.validate()
-            return cfg
-        d = _ensure_mapping(data, "preprocessing.missing_values")
-        cfg = cls(strategy=str(d.get("strategy", cls.strategy)).lower())
-        cfg.validate()
-        return cfg
-
-
-@dataclass(slots=True)
 class PreprocessingConfig:
     enabled: bool = True
     normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
-    missing_values: MissingValuesConfig = field(default_factory=MissingValuesConfig)
 
     def validate(self) -> None:
         self.normalization.validate()
-        self.missing_values.validate()
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any] | None) -> "PreprocessingConfig":
@@ -247,7 +215,6 @@ class PreprocessingConfig:
         cfg = cls(
             enabled=bool(d.get("enabled", cls.enabled)),
             normalization=NormalizationConfig.from_dict(d.get("normalization")),
-            missing_values=MissingValuesConfig.from_dict(d.get("missing_values")),
         )
         cfg.validate()
         return cfg
@@ -547,13 +514,11 @@ class ExportsConfig:
     stats_tables: bool = True
     final_comparison: bool = True
 
-    csv: bool = True
-    json: bool = True
+    # CSV tables and run_info.json are always written; Excel is optional.
     excel: bool = False
 
     def validate(self) -> None:
-        if not (self.csv or self.json or self.excel):
-            raise ValueError("At least one export format among csv/json/excel must be enabled.")
+        return
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any] | None) -> "ExportsConfig":
@@ -571,8 +536,6 @@ class ExportsConfig:
             reduced_b_matrices=bool(d.get("reduced_b_matrices", cls.reduced_b_matrices)),
             stats_tables=bool(d.get("stats_tables", cls.stats_tables)),
             final_comparison=bool(d.get("final_comparison", cls.final_comparison)),
-            csv=bool(d.get("csv", cls.csv)),
-            json=bool(d.get("json", cls.json)),
             excel=bool(d.get("excel", cls.excel)),
         )
         cfg.validate()
