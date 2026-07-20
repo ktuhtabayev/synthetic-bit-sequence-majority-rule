@@ -17,6 +17,9 @@ from synthetic_bit_sequence_majority_rule.gui.app import (  # noqa: E402
     frame_to_table,
 )
 from synthetic_bit_sequence_majority_rule.io.configs import load_default_config  # noqa: E402
+from synthetic_bit_sequence_majority_rule.services.analysis import (  # noqa: E402
+    build_comparison_from_run,
+)
 from synthetic_bit_sequence_majority_rule.services.runner import run_pipeline  # noqa: E402
 
 
@@ -160,7 +163,7 @@ def test_synthetic_features_and_meta_objects_tabs_exist_after_populate() -> None
     result = run_pipeline(cfg, run_id="gui_new_views_test")
     window = MainWindow(Path.cwd())
     window.last_result = result
-    window.normalization_comparison = window._build_normalization_comparison(result)
+    window.normalization_comparison = build_comparison_from_run(result)
     window.populate_tabs(result)
 
     tab_names = [window.tabs.tabText(index) for index in range(window.tabs.count())]

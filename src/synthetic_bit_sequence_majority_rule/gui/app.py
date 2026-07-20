@@ -18,11 +18,10 @@ from synthetic_bit_sequence_majority_rule.algorithms.majority import (
     same_class_indicator_frame,
 )
 from synthetic_bit_sequence_majority_rule.algorithms.neighbors import neighbor_combined_frame
-from synthetic_bit_sequence_majority_rule.gui.meta_objects import (
+from synthetic_bit_sequence_majority_rule.algorithms.meta_objects import (
     NormalizationComparisonResult,
     PCAProjectionResult,
     apply_pca_to_meta_objects,
-    build_normalization_comparison,
     build_meta_objects_from_stability,
     label_offsets_for_points,
     near_zero_axis_notes,
@@ -36,52 +35,28 @@ from synthetic_bit_sequence_majority_rule.gui.synthetic_features import (
     build_synthetic_decimal_frame,
 )
 from synthetic_bit_sequence_majority_rule.io.configs import load_default_config
-from synthetic_bit_sequence_majority_rule.io.writers import (
-    write_normalization_comparison_outputs,
-    write_pipeline_outputs,
+from synthetic_bit_sequence_majority_rule.services.analysis import (
+    FullAnalysisResult,
+    run_full_analysis,
+    write_analysis_outputs,
 )
 from synthetic_bit_sequence_majority_rule.services.runner import (
     PipelineBranchResult,
     PipelineRunResult,
-    run_none_minmax_comparison,
-    run_pipeline,
 )
 
 
-def _require_pyqt6() -> tuple[object, ...]:
-    try:
-        from PyQt6.QtCore import QAbstractTableModel, QModelIndex, QUrl, Qt
-        from PyQt6.QtGui import QAction, QDesktopServices
-        from PyQt6.QtWidgets import (
-            QAbstractItemView,
-            QApplication,
-            QComboBox,
-            QFileDialog,
-            QHBoxLayout,
-            QHeaderView,
-            QLabel,
-            QLineEdit,
-            QMainWindow,
-            QMenu,
-            QMessageBox,
-            QPushButton,
-            QTabWidget,
-            QTableView,
-            QTextEdit,
-            QToolButton,
-            QVBoxLayout,
-            QWidget,
-        )
-    except Exception as exc:  # pragma: no cover - depends on local GUI install
-        raise RuntimeError("PyQt6 is required to launch the desktop GUI.") from exc
-
-    return (
-        QUrl,
-        Qt,
+try:
+    from PyQt6.QtCore import (
         QAbstractTableModel,
         QModelIndex,
-        QAction,
-        QDesktopServices,
+        QThread,
+        QUrl,
+        Qt,
+        pyqtSignal,
+    )
+    from PyQt6.QtGui import QAction, QDesktopServices
+    from PyQt6.QtWidgets import (
         QAbstractItemView,
         QApplication,
         QComboBox,
@@ -93,6 +68,7 @@ def _require_pyqt6() -> tuple[object, ...]:
         QMainWindow,
         QMenu,
         QMessageBox,
+        QProgressBar,
         QPushButton,
         QTabWidget,
         QTableView,
@@ -101,34 +77,8 @@ def _require_pyqt6() -> tuple[object, ...]:
         QVBoxLayout,
         QWidget,
     )
-
-
-(
-    QUrl,
-    Qt,
-    QAbstractTableModel,
-    QModelIndex,
-    QAction,
-    QDesktopServices,
-    QAbstractItemView,
-    QApplication,
-    QComboBox,
-    QFileDialog,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QLineEdit,
-    QMainWindow,
-    QMenu,
-    QMessageBox,
-    QPushButton,
-    QTabWidget,
-    QTableView,
-    QTextEdit,
-    QToolButton,
-    QVBoxLayout,
-    QWidget,
-) = _require_pyqt6()
+except ImportError as exc:  # pragma: no cover - depends on local GUI install
+    raise RuntimeError("PyQt6 is required to launch the desktop GUI.") from exc
 
 
 GRAY_APP_STYLESHEET = """
@@ -316,6 +266,30 @@ def _distance_frame(distance_result) -> pd.DataFrame:
     return frame.rename(columns={"index": "Object"})
 
 
+class AnalysisWorker(QThread):
+    """Run the full analysis off the GUI thread so the window stays responsive."""
+
+    finished_ok = pyqtSignal(object)  # FullAnalysisResult
+    failed = pyqtSignal(str)
+
+    def __init__(self, config, project_root: Path, parent=None) -> None:
+        super().__init__(parent)
+        self._config = config
+        self._project_root = project_root
+
+    def run(self) -> None:  # pragma: no cover - thread entry point
+        try:
+            analysis = run_full_analysis(
+                self._config,
+                project_root=self._project_root,
+                write_outputs=True,
+            )
+        except Exception as exc:
+            self.failed.emit(str(exc))
+        else:
+            self.finished_ok.emit(analysis)
+
+
 class MainWindow(QMainWindow):
     AVAILABLE_METRICS = ("euclidean", "chebyshev", "canberra", "manhattan")
 
@@ -330,6 +304,7 @@ class MainWindow(QMainWindow):
         self.stability_plot_canvas: FigureCanvasQTAgg | None = None
         self.stability_conclusion: QTextEdit | None = None
         self.meta_object_figures: dict[str, Figure] = {}
+        self.analysis_worker: AnalysisWorker | None = None
 
         self.setWindowTitle("Synthetic Bit Sequence Majority Rule")
         self.resize(1440, 860)
@@ -363,8 +338,8 @@ class MainWindow(QMainWindow):
         browse_button = QPushButton("Dataset...")
         browse_button.clicked.connect(self.choose_dataset)
 
-        run_button = QPushButton("Run")
-        run_button.clicked.connect(self.run_current_pipeline)
+        self.run_button = QPushButton("Run")
+        self.run_button.clicked.connect(self.run_current_pipeline)
 
         export_button = QPushButton("Export")
         export_button.clicked.connect(self.export_last_result)
@@ -373,6 +348,11 @@ class MainWindow(QMainWindow):
         self.open_output_button.setEnabled(False)
         self.open_output_button.clicked.connect(self.open_output_folder)
 
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)  # busy indicator
+        self.progress_bar.setMaximumWidth(160)
+        self.progress_bar.setVisible(False)
+
         controls = QHBoxLayout()
         controls.addWidget(QLabel("Dataset"))
         controls.addWidget(self.dataset_path, 1)
@@ -380,9 +360,10 @@ class MainWindow(QMainWindow):
         controls.addWidget(QLabel("Normalization"))
         controls.addWidget(self.normalization)
         controls.addWidget(self.metrics_button)
-        controls.addWidget(run_button)
+        controls.addWidget(self.run_button)
         controls.addWidget(export_button)
         controls.addWidget(self.open_output_button)
+        controls.addWidget(self.progress_bar)
 
         layout = QVBoxLayout()
         layout.addLayout(controls)
@@ -433,8 +414,9 @@ class MainWindow(QMainWindow):
 
     def _config_from_controls(self):
         cfg = load_default_config(self.config_path)
-        dataset = Path(self.dataset_path.text().strip())
-        if dataset:
+        dataset_text = self.dataset_path.text().strip()
+        if dataset_text:
+            dataset = Path(dataset_text)
             try:
                 cfg.dataset.path = dataset.relative_to(self.project_root)
             except ValueError:
@@ -451,42 +433,42 @@ class MainWindow(QMainWindow):
         return cfg
 
     def run_current_pipeline(self) -> None:
+        if self.analysis_worker is not None and self.analysis_worker.isRunning():
+            return
         try:
             cfg = self._config_from_controls()
-            self.status_text.setPlainText("Running pipeline and None vs MinMax comparison...")
-            result = run_pipeline(cfg)
-            comparison_run = run_none_minmax_comparison(cfg, result)
-            self.normalization_comparison = self._build_normalization_comparison(
-                comparison_run
-            )
-            self.last_result = result
-            self.populate_tabs(result)
-            self.last_output_dir = write_pipeline_outputs(
-                result,
-                self.project_root / result.config.run.output_root,
-            )
-            write_normalization_comparison_outputs(
-                self.normalization_comparison,
-                self.last_output_dir,
-            )
-            self.open_output_button.setEnabled(True)
-            self.status_text.setPlainText(self._status_summary(result, self.last_output_dir))
         except Exception as exc:
-            QMessageBox.critical(self, "Run failed", str(exc))
+            QMessageBox.critical(self, "Invalid configuration", str(exc))
             self.status_text.setPlainText(str(exc))
+            return
 
-    @staticmethod
-    def _build_normalization_comparison(
-        comparison_run: PipelineRunResult,
-    ) -> NormalizationComparisonResult:
-        raw = comparison_run.branches["raw"]
-        minmax = comparison_run.branches["normalized"]
-        return build_normalization_comparison(
-            raw.stability_results,
-            minmax.stability_results,
-            raw.complexity_result,
-            minmax.complexity_result,
+        self.run_button.setEnabled(False)
+        self.progress_bar.setVisible(True)
+        self.status_text.setPlainText("Running pipeline and None vs MinMax comparison...")
+
+        self.analysis_worker = AnalysisWorker(cfg, self.project_root, parent=self)
+        self.analysis_worker.finished_ok.connect(self._on_analysis_finished)
+        self.analysis_worker.failed.connect(self._on_analysis_failed)
+        self.analysis_worker.finished.connect(self._on_analysis_done)
+        self.analysis_worker.start()
+
+    def _on_analysis_finished(self, analysis: FullAnalysisResult) -> None:
+        self.last_result = analysis.pipeline
+        self.normalization_comparison = analysis.comparison
+        self.last_output_dir = analysis.output_dir
+        self.populate_tabs(analysis.pipeline)
+        self.open_output_button.setEnabled(analysis.output_dir is not None)
+        self.status_text.setPlainText(
+            self._status_summary(analysis.pipeline, self.last_output_dir)
         )
+
+    def _on_analysis_failed(self, message: str) -> None:
+        QMessageBox.critical(self, "Run failed", message)
+        self.status_text.setPlainText(message)
+
+    def _on_analysis_done(self) -> None:
+        self.run_button.setEnabled(True)
+        self.progress_bar.setVisible(False)
 
     def populate_tabs(self, result: PipelineRunResult) -> None:
         self.tabs.clear()
@@ -959,19 +941,15 @@ class MainWindow(QMainWindow):
         )
 
     def export_last_result(self) -> None:
-        if self.last_result is None:
+        if self.last_result is None or self.normalization_comparison is None:
             QMessageBox.information(self, "Nothing to export", "Run the pipeline first.")
             return
         try:
-            self.last_output_dir = write_pipeline_outputs(
+            self.last_output_dir = write_analysis_outputs(
                 self.last_result,
-                self.project_root / self.last_result.config.run.output_root,
+                self.normalization_comparison,
+                self.project_root,
             )
-            if self.normalization_comparison is not None:
-                write_normalization_comparison_outputs(
-                    self.normalization_comparison,
-                    self.last_output_dir,
-                )
             self.open_output_button.setEnabled(True)
             self.status_text.setPlainText(self._status_summary(self.last_result, self.last_output_dir))
             QMessageBox.information(self, "Export complete", str(self.last_output_dir))

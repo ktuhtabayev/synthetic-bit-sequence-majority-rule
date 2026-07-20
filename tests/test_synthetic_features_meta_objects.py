@@ -9,7 +9,7 @@ from synthetic_bit_sequence_majority_rule.algorithms.statistics import (
     StabilityTableResult,
     build_complexity_table,
 )
-from synthetic_bit_sequence_majority_rule.gui.meta_objects import (
+from synthetic_bit_sequence_majority_rule.algorithms.meta_objects import (
     PCA_3D_UNAVAILABLE_MESSAGE,
     apply_pca_to_meta_objects,
     build_normalization_comparison,
