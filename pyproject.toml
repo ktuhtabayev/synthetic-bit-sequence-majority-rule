@@ -1,0 +1,64 @@
+[project]
+name = "SyntheticBitSequenceMajorityRule"
+version = "0.1.0"
+description = "Synthetic binary feature construction using nearest-neighbor majority rule, metric-based comparison, Excel export, and future GUI support."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+authors = [
+  { name = "Kudratillo Tuhtabayev", email = "ktuhtabayev@email.com" }
+]
+
+dependencies = [
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "scikit-learn>=1.3",
+  "matplotlib>=3.8",
+  "openpyxl>=3.1",
+  "PyYAML>=6.0",
+  "PyQt6>=6.6",
+  "scipy>=1.11",
+  "seaborn>=0.13",
+  "xlsxwriter>=3.1",
+  "tabulate>=0.9",
+  "tqdm>=4.66",
+  "networkx>=3.2"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=4.1",
+  "black>=24.0",
+  "ruff>=0.5",
+  "mypy>=1.8",
+  "ipykernel>=6.29"
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-p no:cacheprovider"
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true

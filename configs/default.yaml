@@ -1,0 +1,311 @@
+project:
+  name: SyntheticBitSequenceMajorityRule
+  version: "0.1.0"
+
+run:
+  run_name: default_run
+  random_seed: 42
+  save_outputs: true
+  output_root: outputs/runs
+  figures_dir: outputs/figures
+  logs_dir: outputs/logs
+
+# ============================================================
+# ACTIVE DATASET CONFIGURATION
+# Change only this section when switching the main dataset.
+# ============================================================
+dataset:
+  # ----------------------------------------------------------
+  # DEFAULT DATASET
+  # ----------------------------------------------------------
+
+  # --- For Default Dataset CSV use ---:
+  path: datasets/default.csv
+  alternate_paths:
+    - datasets/default.dat
+  format: csv
+
+  # --- For Default Dataset DAT use ---:
+  # path: datasets/default.dat
+  # alternate_paths:
+  #   - datasets/default.csv
+  # format: dat
+
+  # ----------------------------------------------------------
+  # Dog-Wolf DATASET
+  # ----------------------------------------------------------
+
+  # --- For Dog-Wolf CSV use ---:
+  # path: datasets/quantitative/dog-wolf/Dog-Wolf (42, 6, 2).csv
+  # alternate_paths:
+  #   - datasets/quantitative/dog-wolf/Dog-Wolf (42, 6, 2).dat
+  # format: csv
+
+  # --- For Dog-Wolf DAT use ---:
+  # path: datasets/quantitative/dog-wolf/Dog-Wolf (42, 6, 2).dat
+  # alternate_paths:
+  #   - datasets/quantitative/dog-wolf/Dog-Wolf (42, 6, 2).csv
+  # format: dat
+
+  # ----------------------------------------------------------
+  # HYPERTENSION DATASET
+  # ----------------------------------------------------------
+
+  # --- For Hypertension CSV use ---:
+  # path: datasets/quantitative/hypertension/Hypertension (147, 29, 2).csv
+  # alternate_paths:
+  #   - datasets/quantitative/hypertension/Hypertension (147, 29, 2).dat
+  # format: csv
+
+  # --- For Hypertension DAT use ---:
+  # path: datasets/quantitative/hypertension/Hypertension (147, 29, 2).dat
+  # alternate_paths:
+  #   - datasets/quantitative/hypertension/Hypertension (147, 29, 2).csv
+  # format: dat
+
+  # ----------------------------------------------------------
+  # IONOSFERA DATASET
+  # ----------------------------------------------------------
+
+  # --- For Ionosfera CSV use ---:
+  # path: datasets/quantitative/ionosfera/Ionosfera (350, 33, 2).csv
+  # alternate_paths:
+  #   - datasets/quantitative/ionosfera/Ionosfera (350, 33, 2).dat
+  # format: csv
+  # has_header: false
+
+  # --- For Ionosfera DAT use ---:
+  # path: datasets/quantitative/ionosfera/Ionosfera (350, 33, 2).dat
+  # alternate_paths:
+  #   - datasets/quantitative/ionosfera/Ionosfera (350, 33, 2).csv
+  # format: dat
+  # has_header: false
+
+  # ----------------------------------------------------------
+  # FOR FUTURE DATASET
+  # ----------------------------------------------------------
+
+  # --- For Future Dataset XLSX use ---:
+  # path: datasets/future-dataset/future-dataset.xlsx
+  # alternate_paths:
+  #   - datasets/future-dataset/future-dataset.csv
+  # format: xlsx
+
+  supported_formats:
+    - csv
+    - dat
+    - xlsx
+    - xls
+
+  delimiter: ","
+
+  # CSV / XLSX / XLS usually:
+  has_header: true
+
+  # DAT usually:
+  # has_header: false
+
+  object_id_column: null
+  object_name_prefix: "S"
+
+  feature_columns:
+    - x1
+    - x2
+    - x3
+    - x4
+    - x5
+    - x6
+
+  class_column: Class
+
+  label_mapping:
+    1: 1
+    2: 2
+
+# ============================================================
+# DATASET CATALOG
+# These are presets / reminders for quick switching later.
+# ============================================================
+dataset_catalog:
+  default_csv:
+    path: datasets/default.csv
+    alternate_paths:
+      - datasets/default.dat
+    format: csv
+    has_header: true
+    delimiter: ","
+
+  default_dat:
+    path: datasets/default.dat
+    alternate_paths:
+      - datasets/default.csv
+    format: dat
+    has_header: false
+    delimiter: ","
+
+  dog_wolf_csv:
+    path: datasets/quantitative/dog-wolf/Dog-Wolf (42, 6, 2).csv
+    alternate_paths:
+      - datasets/quantitative/dog-wolf/Dog-Wolf (42, 6, 2).dat
+    format: csv
+    has_header: true
+    delimiter: ","
+
+  dog_wolf_dat:
+    path: datasets/quantitative/dog-wolf/Dog-Wolf (42, 6, 2).dat
+    alternate_paths:
+      - datasets/quantitative/dog-wolf/Dog-Wolf (42, 6, 2).csv
+    format: dat
+    has_header: false
+    delimiter: ","
+
+  dog_wolf_xlsx:
+    path: datasets/quantitative/dog-wolf/Dog-Wolf (42, 6, 2).xlsx
+    alternate_paths: []
+    format: xlsx
+    has_header: true
+    delimiter: ","
+
+  ionosfera_csv:
+    path: datasets/quantitative/ionosfera/Ionosfera (350, 33, 2).csv
+    alternate_paths:
+      - datasets/quantitative/ionosfera/Ionosfera (350, 33, 2).dat
+    format: csv
+    has_header: false
+    delimiter: ","
+
+  ionosfera_dat:
+    path: datasets/quantitative/ionosfera/Ionosfera (350, 33, 2).dat
+    alternate_paths:
+      - datasets/quantitative/ionosfera/Ionosfera (350, 33, 2).csv
+    format: dat
+    has_header: false
+    delimiter: ","
+
+# ============================================================
+# GENERAL DATASET STRUCTURE RULES FOR THIS PROJECT
+# ============================================================
+dataset_structure:
+  first_row_may_contain_shape: true
+  last_row_may_contain_feature_signs: true
+
+  shape_row_meaning:
+    m: number_of_objects
+    n: number_of_features
+    c: number_of_classes
+
+  feature_sign_meaning:
+    1: quantitative
+    0: nominal
+
+  current_default_feature_signs:
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+
+  current_default_dataset_note: "All 6 current features are quantitative; no nominal features are present."
+
+preprocessing:
+  enabled: true
+
+  normalization:
+    mode: none        # options: none, minmax, zscore
+    apply_before_distance: true
+
+    Future-ready notes:
+    # - minmax  = Min–Max Normalization (Rescaling)
+    # - zscore  = Z-score Normalization (Standardization)
+    # Additional normalization methods can be added later.
+
+  missing_values:
+    strategy: error
+
+metrics:
+  enabled:
+    - euclidean
+    - chebyshev
+    - canberra
+    - manhattan
+
+neighbors:
+  tie_break_rule: index_ascending
+  exclude_self: true
+
+# ============================================================
+# DYNAMIC K RULE
+# full = 1..k_max
+# k_max = min(m-1, 2*min_i|K_i| - 3)
+# reduced = odd values from 3 to k_max
+# ============================================================
+k_values:
+  full:
+    start: 1
+    end: auto_formula
+  reduced:
+    mode: odd_from_3
+
+majority_rule:
+  threshold: 0.5
+  comparison: strict_greater
+
+binary_sequence:
+  use_reduced_k_values: true
+  reduced_order_mode: follow_reduced_k_values
+
+decimal_encoding:
+  enabled: true
+  bit_order: left_to_right
+
+statistics:
+  enabled: true
+
+  dominant_class_rule: larger_count
+  purity_formula: dominant_count_div_total
+
+  tie_rule:
+    - higher_purity
+    - higher_frequency
+    - smaller_decimal
+    - smaller_binary_sequence
+
+exports:
+  distance_matrices: true
+  neighbors_tables: true
+  full_a_matrices: true
+  reduced_a_matrices: true
+  full_b_matrices: true
+  reduced_b_matrices: true
+  stats_tables: true
+  final_comparison: true
+  csv: true
+  json: true
+  excel: false
+
+quick_tests:
+  print_tables: true
+  round_decimals: 6
+
+  normalization:
+    save_outputs: true
+    output_subdir: quick_normalization_test
+
+  distances:
+    save_outputs: true
+    output_subdir: quick_distance_test
+
+  neighbors:
+    save_outputs: true
+    output_subdir: quick_neighbors_test
+
+  majority:
+    save_outputs: true
+    output_subdir: quick_majority_test
+
+notes:
+  problem: "Synthetic binary feature construction using nearest-neighbor majority rule."
+  limitation: "For each dataset, k_max is computed dynamically by k_max = min(m-1, 2*min_i|K_i| - 3). Reduced k values are odd values from 3 to k_max."
+  switching_rule: "To switch datasets, update only the active dataset block above or copy values from dataset_catalog."
+  quick_tests_rule: "Normalization mode and enabled metrics must be controlled from default.yaml only."

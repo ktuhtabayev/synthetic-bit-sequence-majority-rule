@@ -1,0 +1,256 @@
+# ============================================================
+# EXPERIMENT PRESETS
+# These are batch experiment definitions.
+# Each experiment may override the default.yaml settings.
+# ============================================================
+
+experiments:
+  - name: no_normalization_all_metrics_default_csv
+    dataset:
+      path: datasets/default.csv
+      alternate_paths:
+        - datasets/default.dat
+      format: csv
+      supported_formats: [csv, dat, xlsx, xls]
+      delimiter: ","
+      has_header: true
+      feature_columns: [x1, x2, x3, x4, x5, x6]
+      class_column: Class
+      label_mapping:
+        1: 1
+        2: 2
+
+    preprocessing:
+      normalization:
+        mode: none
+        apply_before_distance: true
+
+    metrics:
+      enabled: [euclidean, chebyshev, canberra]
+
+    k_values:
+      full:
+        start: 1
+        end: auto_formula
+      reduced:
+        mode: odd_from_3
+
+    binary_sequence:
+      use_reduced_k_values: true
+      reduced_order_mode: follow_reduced_k_values
+
+    exports:
+      csv: true
+      json: true
+      excel: false
+
+  - name: minmax_all_metrics_default_csv
+    dataset:
+      path: datasets/default.csv
+      alternate_paths:
+        - datasets/default.dat
+      format: csv
+      supported_formats: [csv, dat, xlsx, xls]
+      delimiter: ","
+      has_header: true
+      feature_columns: [x1, x2, x3, x4, x5, x6]
+      class_column: Class
+      label_mapping:
+        1: 1
+        2: 2
+
+    preprocessing:
+      normalization:
+        mode: minmax
+        apply_before_distance: true
+
+    metrics:
+      enabled: [euclidean, chebyshev, canberra]
+
+    k_values:
+      full:
+        start: 1
+        end: auto_formula
+      reduced:
+        mode: odd_from_3
+
+    binary_sequence:
+      use_reduced_k_values: true
+      reduced_order_mode: follow_reduced_k_values
+
+    exports:
+      csv: true
+      json: true
+      excel: false
+
+  - name: zscore_all_metrics_default_csv
+    dataset:
+      path: datasets/default.csv
+      alternate_paths:
+        - datasets/default.dat
+      format: csv
+      supported_formats: [csv, dat, xlsx, xls]
+      delimiter: ","
+      has_header: true
+      feature_columns: [x1, x2, x3, x4, x5, x6]
+      class_column: Class
+      label_mapping:
+        1: 1
+        2: 2
+
+    preprocessing:
+      normalization:
+        mode: zscore
+        apply_before_distance: true
+
+    metrics:
+      enabled: [euclidean, chebyshev, canberra]
+
+    k_values:
+      full:
+        start: 1
+        end: auto_formula
+      reduced:
+        mode: odd_from_3
+
+    binary_sequence:
+      use_reduced_k_values: true
+      reduced_order_mode: follow_reduced_k_values
+
+    exports:
+      csv: true
+      json: true
+      excel: false
+
+  - name: no_normalization_all_metrics_default_dat
+    dataset:
+      path: datasets/default.dat
+      alternate_paths:
+        - datasets/default.csv
+      format: dat
+      supported_formats: [csv, dat, xlsx, xls]
+      delimiter: ","
+      has_header: false
+      feature_columns: [x1, x2, x3, x4, x5, x6]
+      class_column: Class
+      label_mapping:
+        1: 1
+        2: 2
+
+    preprocessing:
+      normalization:
+        mode: none
+        apply_before_distance: true
+
+    metrics:
+      enabled: [euclidean, chebyshev, canberra]
+
+    k_values:
+      full:
+        start: 1
+        end: auto_formula
+      reduced:
+        mode: odd_from_3
+
+    binary_sequence:
+      use_reduced_k_values: true
+      reduced_order_mode: follow_reduced_k_values
+
+    exports:
+      csv: true
+      json: true
+      excel: false
+
+  - name: minmax_all_metrics_default_dat
+    dataset:
+      path: datasets/default.dat
+      alternate_paths:
+        - datasets/default.csv
+      format: dat
+      supported_formats: [csv, dat, xlsx, xls]
+      delimiter: ","
+      has_header: false
+      feature_columns: [x1, x2, x3, x4, x5, x6]
+      class_column: Class
+      label_mapping:
+        1: 1
+        2: 2
+
+    preprocessing:
+      normalization:
+        mode: minmax
+        apply_before_distance: true
+
+    metrics:
+      enabled: [euclidean, chebyshev, canberra]
+
+    k_values:
+      full:
+        start: 1
+        end: auto_formula
+      reduced:
+        mode: odd_from_3
+
+    binary_sequence:
+      use_reduced_k_values: true
+      reduced_order_mode: follow_reduced_k_values
+
+    exports:
+      csv: true
+      json: true
+      excel: false
+
+  - name: zscore_all_metrics_default_dat
+    dataset:
+      path: datasets/default.dat
+      alternate_paths:
+        - datasets/default.csv
+      format: dat
+      supported_formats: [csv, dat, xlsx, xls]
+      delimiter: ","
+      has_header: false
+      feature_columns: [x1, x2, x3, x4, x5, x6]
+      class_column: Class
+      label_mapping:
+        1: 1
+        2: 2
+
+    preprocessing:
+      normalization:
+        mode: zscore
+        apply_before_distance: true
+
+    metrics:
+      enabled: [euclidean, chebyshev, canberra]
+
+    k_values:
+      full:
+        start: 1
+        end: auto_formula
+      reduced:
+        mode: odd_from_3
+
+    binary_sequence:
+      use_reduced_k_values: true
+      reduced_order_mode: follow_reduced_k_values
+
+    exports:
+      csv: true
+      json: true
+      excel: false
+
+notes:
+  normalization_modes:
+    - none
+    - minmax
+    - zscore
+
+  enabled_metrics:
+    - euclidean
+    - chebyshev
+    - canberra
+
+  future_extensions:
+    - "All experiments follow the new dynamic k rule only."
+    - "full = 1..k_max where k_max = min(m-1, 2*min_i|K_i| - 3)."
+    - "reduced = odd values from 3 to k_max."
