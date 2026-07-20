@@ -17,6 +17,8 @@ from synthetic_bit_sequence_majority_rule.domain.schema import (
     LoadedDataset,
     MajorityMatricesResult,
     NeighborTableResult,
+    dataset_normalized_flag,
+    ensure_loaded_dataset,
 )
 
 
@@ -39,21 +41,14 @@ class MajoritySummary:
 # Small helpers
 # ============================================================
 
-def _ensure_dataset(dataset: LoadedDataset) -> LoadedDataset:
-    if not isinstance(dataset, LoadedDataset):
-        raise TypeError("Expected a LoadedDataset instance.")
-    return dataset
+_ensure_dataset = ensure_loaded_dataset
+_normalized_flag_from_dataset = dataset_normalized_flag
 
 
 def _ensure_neighbor_result(result: NeighborTableResult) -> NeighborTableResult:
     if not isinstance(result, NeighborTableResult):
         raise TypeError("Expected a NeighborTableResult instance.")
     return result
-
-
-def _normalized_flag_from_dataset(dataset: LoadedDataset) -> bool:
-    mode = dataset.metadata.get("normalization_mode")
-    return isinstance(mode, str) and mode.strip().lower() != "none"
 
 
 def _validate_alignment(dataset: LoadedDataset, neighbor_result: NeighborTableResult) -> None:

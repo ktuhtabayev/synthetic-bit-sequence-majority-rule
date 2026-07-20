@@ -7,7 +7,12 @@ import numpy as np
 import pandas as pd
 
 from synthetic_bit_sequence_majority_rule.domain.errors import DistanceComputationError
-from synthetic_bit_sequence_majority_rule.domain.schema import DistanceMatrixResult, LoadedDataset
+from synthetic_bit_sequence_majority_rule.domain.schema import (
+    DistanceMatrixResult,
+    LoadedDataset,
+    dataset_normalized_flag,
+    ensure_loaded_dataset,
+)
 
 
 # ============================================================
@@ -37,10 +42,8 @@ class DistanceSummary:
 # Small helpers
 # ============================================================
 
-def _ensure_dataset(dataset: LoadedDataset) -> LoadedDataset:
-    if not isinstance(dataset, LoadedDataset):
-        raise TypeError("Expected a LoadedDataset instance.")
-    return dataset
+_ensure_dataset = ensure_loaded_dataset
+_normalized_flag_from_dataset = dataset_normalized_flag
 
 
 def _ensure_numeric_matrix(dataset: LoadedDataset, metric_name: str) -> np.ndarray:
@@ -52,11 +55,6 @@ def _ensure_numeric_matrix(dataset: LoadedDataset, metric_name: str) -> np.ndarr
     if not np.isfinite(X).all():
         raise DistanceComputationError(metric=metric_name, reason="Feature matrix contains NaN or infinite values.")
     return X
-
-
-def _normalized_flag_from_dataset(dataset: LoadedDataset) -> bool:
-    mode = dataset.metadata.get("normalization_mode")
-    return isinstance(mode, str) and mode.strip().lower() != "none"
 
 
 def _build_result(

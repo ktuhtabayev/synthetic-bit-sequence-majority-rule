@@ -8,7 +8,11 @@ import pandas as pd
 
 from synthetic_bit_sequence_majority_rule.domain.errors import NormalizationError
 from synthetic_bit_sequence_majority_rule.domain.params import NormalizationConfig
-from synthetic_bit_sequence_majority_rule.domain.schema import LoadedDataset, NormalizedDataset
+from synthetic_bit_sequence_majority_rule.domain.schema import (
+    LoadedDataset,
+    NormalizedDataset,
+    ensure_loaded_dataset,
+)
 
 
 # ============================================================
@@ -38,10 +42,7 @@ class NormalizationSummary:
 # Small helpers
 # ============================================================
 
-def _ensure_dataset(dataset: LoadedDataset) -> LoadedDataset:
-    if not isinstance(dataset, LoadedDataset):
-        raise TypeError("Expected a LoadedDataset instance.")
-    return dataset
+_ensure_dataset = ensure_loaded_dataset
 
 
 def _validate_numeric_matrix(X: np.ndarray, mode: str) -> np.ndarray:

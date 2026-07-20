@@ -6,14 +6,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from synthetic_bit_sequence_majority_rule.algorithms.distances import compare_distance_runs
+from synthetic_bit_sequence_majority_rule.algorithms.distances import (
+    compute_multiple_distance_matrices,
+)
 from synthetic_bit_sequence_majority_rule.algorithms.majority import (
-    compare_majority_runs,
+    build_multiple_majority_matrices,
     compute_formula_based_kmax,
     compute_full_k_values,
     compute_reduced_k_values,
 )
-from synthetic_bit_sequence_majority_rule.algorithms.neighbors import compare_neighbor_runs
+from synthetic_bit_sequence_majority_rule.algorithms.neighbors import (
+    build_multiple_neighbor_tables,
+)
 from synthetic_bit_sequence_majority_rule.algorithms.normalization import prepare_dataset_variants
 from synthetic_bit_sequence_majority_rule.algorithms.statistics import (
     ComplexityTableResult,
@@ -94,50 +98,50 @@ def run_pipeline(config: AppConfig, run_id: str | None = None) -> PipelineRunRes
     except Exception as exc:
         raise PipelineExecutionError(stage="normalization", reason=str(exc)) from exc
 
-    try:
-        distance_results = compare_distance_runs(
-            raw_dataset=dataset_variants["raw"],
-            selected_dataset=dataset_variants["selected"],
-            normalized_dataset=dataset_variants.get("normalized"),
-            metric_names=config.enabled_metrics,
-        )
-    except Exception as exc:
-        raise PipelineExecutionError(stage="distances", reason=str(exc)) from exc
+    # Branch pairs with identical feature matrices share one computation:
+    # - mode == none : selected is the raw dataset used as-is
+    # - mode != none : normalized is the same dataset as selected
+    normalization_mode = config.preprocessing.normalization.mode.strip().lower()
+    branch_aliases = (
+        {"selected": "raw"} if normalization_mode == "none" else {"normalized": "selected"}
+    )
+    computed_names = [name for name in dataset_variants if name not in branch_aliases]
 
-    try:
-        neighbor_results = compare_neighbor_runs(
-            raw_distance_results=distance_results["raw"],
-            selected_distance_results=distance_results["selected"],
-            normalized_distance_results=distance_results.get("normalized"),
-            neighbors_config=config.neighbors,
-        )
-    except Exception as exc:
-        raise PipelineExecutionError(stage="neighbors", reason=str(exc)) from exc
+    computed_branches: dict[str, PipelineBranchResult] = {}
+    for branch_name in computed_names:
+        branch_dataset = dataset_variants[branch_name]
 
-    try:
-        majority_results = compare_majority_runs(
-            raw_dataset=dataset_variants["raw"],
-            raw_neighbor_results=neighbor_results["raw"],
-            selected_dataset=dataset_variants["selected"],
-            selected_neighbor_results=neighbor_results["selected"],
-            normalized_dataset=dataset_variants.get("normalized"),
-            normalized_neighbor_results=neighbor_results.get("normalized"),
-            k_values_config=config.k_values,
-            majority_rule_config=config.majority_rule,
-            binary_sequence_config=config.binary_sequence,
-            decimal_encoding_config=config.decimal_encoding,
-        )
-    except Exception as exc:
-        raise PipelineExecutionError(stage="majority", reason=str(exc)) from exc
+        try:
+            distance_results = compute_multiple_distance_matrices(
+                branch_dataset,
+                config.enabled_metrics,
+            )
+        except Exception as exc:
+            raise PipelineExecutionError(stage=f"distances:{branch_name}", reason=str(exc)) from exc
 
-    branches: dict[str, PipelineBranchResult] = {}
-    for branch_name, branch_majority_results in majority_results.items():
+        try:
+            neighbor_results = build_multiple_neighbor_tables(distance_results, config.neighbors)
+        except Exception as exc:
+            raise PipelineExecutionError(stage=f"neighbors:{branch_name}", reason=str(exc)) from exc
+
+        try:
+            majority_results = build_multiple_majority_matrices(
+                dataset=branch_dataset,
+                neighbor_results=neighbor_results,
+                k_values_config=config.k_values,
+                majority_rule_config=config.majority_rule,
+                binary_sequence_config=config.binary_sequence,
+                decimal_encoding_config=config.decimal_encoding,
+            )
+        except Exception as exc:
+            raise PipelineExecutionError(stage=f"majority:{branch_name}", reason=str(exc)) from exc
+
         try:
             statistics_results: dict[str, StatisticsTableResult] = {}
             membership_results: dict[str, MembershipTableResult] = {}
             stability_results: dict[str, StabilityTableResult] = {}
 
-            for metric_name, majority_result in branch_majority_results.items():
+            for metric_name, majority_result in majority_results.items():
                 stats = build_sequence_statistics(majority_result, config.statistics)
                 membership = build_membership_table(majority_result)
                 stability = build_stability_table(
@@ -150,23 +154,43 @@ def run_pipeline(config: AppConfig, run_id: str | None = None) -> PipelineRunRes
 
             final_comparison = build_final_comparison(statistics_results)
             complexity_result = build_complexity_table(stability_results)
-            branches[branch_name] = PipelineBranchResult(
-                branch_name=branch_name,
-                dataset=dataset_variants[branch_name],
-                distance_results=distance_results[branch_name],
-                neighbor_results=neighbor_results[branch_name],
-                majority_results=branch_majority_results,
-                statistics_results=statistics_results,
-                membership_results=membership_results,
-                stability_results=stability_results,
-                complexity_result=complexity_result,
-                final_comparison=final_comparison,
-            )
         except Exception as exc:
             raise PipelineExecutionError(
                 stage=f"statistics:{branch_name}",
                 reason=str(exc),
             ) from exc
+
+        computed_branches[branch_name] = PipelineBranchResult(
+            branch_name=branch_name,
+            dataset=branch_dataset,
+            distance_results=distance_results,
+            neighbor_results=neighbor_results,
+            majority_results=majority_results,
+            statistics_results=statistics_results,
+            membership_results=membership_results,
+            stability_results=stability_results,
+            complexity_result=complexity_result,
+            final_comparison=final_comparison,
+        )
+
+    branches: dict[str, PipelineBranchResult] = {}
+    for branch_name in dataset_variants:
+        source = computed_branches.get(branch_name)
+        if source is None:
+            shared = computed_branches[branch_aliases[branch_name]]
+            source = PipelineBranchResult(
+                branch_name=branch_name,
+                dataset=dataset_variants[branch_name],
+                distance_results=shared.distance_results,
+                neighbor_results=shared.neighbor_results,
+                majority_results=shared.majority_results,
+                statistics_results=shared.statistics_results,
+                membership_results=shared.membership_results,
+                stability_results=shared.stability_results,
+                complexity_result=shared.complexity_result,
+                final_comparison=shared.final_comparison,
+            )
+        branches[branch_name] = source
 
     actual_run_id = run_id or make_run_id(config.run.run_name)
     return PipelineRunResult(

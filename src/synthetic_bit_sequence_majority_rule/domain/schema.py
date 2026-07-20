@@ -180,6 +180,18 @@ class LoadedDataset:
         )
 
 
+def ensure_loaded_dataset(dataset: Any) -> LoadedDataset:
+    if not isinstance(dataset, LoadedDataset):
+        raise TypeError("Expected a LoadedDataset instance.")
+    return dataset
+
+
+def dataset_normalized_flag(dataset: LoadedDataset) -> bool:
+    """True when the dataset's metadata records an active normalization mode."""
+    mode = dataset.metadata.get("normalization_mode")
+    return isinstance(mode, str) and mode.strip().lower() != "none"
+
+
 # ============================================================
 # Normalized dataset
 # ============================================================
