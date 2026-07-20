@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 
 authors = [
-  { name = "Kudratillo Tuhtabayev", email = "ktuhtabayev@email.com" }
+  { name = "Kudratillo Tuhtabayev", email = "ktuhtabayev@gmail.com" }
 ]
 
 dependencies = [
@@ -17,13 +17,7 @@ dependencies = [
   "matplotlib>=3.8",
   "openpyxl>=3.1",
   "PyYAML>=6.0",
-  "PyQt6>=6.6",
-  "scipy>=1.11",
-  "seaborn>=0.13",
-  "xlsxwriter>=3.1",
-  "tabulate>=0.9",
-  "tqdm>=4.66",
-  "networkx>=3.2"
+  "PyQt6>=6.6"
 ]
 
 [project.optional-dependencies]

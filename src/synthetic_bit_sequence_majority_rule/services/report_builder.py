@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from synthetic_bit_sequence_majority_rule.services.runner import PipelineBranchResult, PipelineRunResult
+from synthetic_bit_sequence_majority_rule.services.runner import PipelineRunResult
 
 
 def build_run_summary_frame(result: PipelineRunResult) -> pd.DataFrame:
@@ -23,7 +23,3 @@ def build_run_summary_frame(result: PipelineRunResult) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
-
-
-def build_branch_final_summary(branch: PipelineBranchResult) -> pd.DataFrame:
-    return branch.final_comparison.to_frame()

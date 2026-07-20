@@ -276,28 +276,7 @@ exports:
   # CSV tables and run_info.json are always written.
   excel: false
 
-quick_tests:
-  print_tables: true
-  round_decimals: 6
-
-  normalization:
-    save_outputs: true
-    output_subdir: quick_normalization_test
-
-  distances:
-    save_outputs: true
-    output_subdir: quick_distance_test
-
-  neighbors:
-    save_outputs: true
-    output_subdir: quick_neighbors_test
-
-  majority:
-    save_outputs: true
-    output_subdir: quick_majority_test
-
 notes:
   problem: "Synthetic binary feature construction using nearest-neighbor majority rule."
   limitation: "For each dataset, k_max is computed dynamically by k_max = min(m-1, 2*min_i|K_i| - 3). Reduced k values are odd values from 3 to k_max."
   switching_rule: "To switch datasets, update only the active dataset block above or copy values from dataset_catalog."
-  quick_tests_rule: "Normalization mode and enabled metrics must be controlled from default.yaml only."

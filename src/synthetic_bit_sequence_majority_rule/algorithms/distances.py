@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, Callable
 
 import numpy as np
-import pandas as pd
 
 from synthetic_bit_sequence_majority_rule.domain.errors import DistanceComputationError
 from synthetic_bit_sequence_majority_rule.domain.schema import (
@@ -20,22 +18,6 @@ from synthetic_bit_sequence_majority_rule.domain.schema import (
 # ============================================================
 
 DistanceFunction = Callable[[LoadedDataset], DistanceMatrixResult]
-
-
-# ============================================================
-# Internal summary dataclass
-# ============================================================
-
-@dataclass(slots=True)
-class DistanceSummary:
-    metric_name: str
-    n_objects: int
-    normalized: bool
-    min_distance: float
-    max_distance: float
-    diagonal_zero: bool
-    symmetric: bool
-    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 # ============================================================
@@ -242,61 +224,4 @@ def compute_multiple_distance_matrices(
     for metric_name in metric_names:
         metric = str(metric_name).strip().lower()
         results[metric] = compute_distance_matrix(dataset, metric)
-    return results
-
-
-def build_distance_summary(result: DistanceMatrixResult) -> DistanceSummary:
-    matrix = result.matrix
-    diagonal = np.diag(matrix)
-
-    if matrix.shape[0] > 1:
-        off_diag_mask = ~np.eye(matrix.shape[0], dtype=bool)
-        off_diag_values = matrix[off_diag_mask]
-        min_distance = float(np.min(off_diag_values))
-        max_distance = float(np.max(off_diag_values))
-    else:
-        min_distance = 0.0
-        max_distance = 0.0
-
-    return DistanceSummary(
-        metric_name=result.metric_name,
-        n_objects=result.n_objects,
-        normalized=result.normalized,
-        min_distance=min_distance,
-        max_distance=max_distance,
-        diagonal_zero=bool(np.allclose(diagonal, 0.0, atol=1e-12)),
-        symmetric=bool(np.allclose(matrix, matrix.T, atol=1e-12)),
-        metadata=dict(result.metadata),
-    )
-
-
-def distance_result_to_frame(result: DistanceMatrixResult) -> pd.DataFrame:
-    return result.to_frame()
-
-
-def compare_distance_runs(
-    raw_dataset: LoadedDataset,
-    selected_dataset: LoadedDataset,
-    metric_names: list[str],
-    normalized_dataset: LoadedDataset | None = None,
-) -> dict[str, dict[str, DistanceMatrixResult]]:
-    """
-    Convenience helper for experiments that need conceptual branches:
-    - raw
-    - selected
-    - normalized (optional)
-
-    Branch semantics:
-    - raw       : original dataset as loaded
-    - selected  : dataset actually used by the current pipeline run
-    - normalized: explicit normalized dataset branch when normalization mode is not none
-    """
-    results: dict[str, dict[str, DistanceMatrixResult]] = {
-        "raw": compute_multiple_distance_matrices(raw_dataset, metric_names),
-        "selected": compute_multiple_distance_matrices(selected_dataset, metric_names),
-    }
-
-    if normalized_dataset is not None:
-        results["normalized"] = compute_multiple_distance_matrices(normalized_dataset, metric_names)
-
     return results

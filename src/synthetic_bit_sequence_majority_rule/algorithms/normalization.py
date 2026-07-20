@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, Callable
 
 import numpy as np
-import pandas as pd
 
 from synthetic_bit_sequence_majority_rule.domain.errors import NormalizationError
 from synthetic_bit_sequence_majority_rule.domain.params import NormalizationConfig
@@ -20,22 +18,6 @@ from synthetic_bit_sequence_majority_rule.domain.schema import (
 # ============================================================
 
 NormalizationFunction = Callable[[LoadedDataset], NormalizedDataset]
-
-
-# ============================================================
-# Internal helper dataclasses
-# ============================================================
-
-@dataclass(slots=True)
-class NormalizationSummary:
-    """
-    Lightweight summary for logging / reporting.
-    """
-    mode: str
-    changed: bool
-    n_objects: int
-    n_features: int
-    parameters: dict[str, Any] = field(default_factory=dict)
 
 
 # ============================================================
@@ -274,67 +256,3 @@ def prepare_dataset_variants(
         variants["normalized"] = selected_dataset
 
     return variants
-
-
-def should_use_normalized_dataset(normalization_config: NormalizationConfig) -> bool:
-    """
-    Helper for downstream logic.
-    """
-    return normalization_config.mode.strip().lower() != "none"
-
-
-def build_normalization_summary(
-    normalized_dataset: NormalizedDataset,
-) -> NormalizationSummary:
-    """
-    Build a small summary object for logging / export.
-    """
-    return NormalizationSummary(
-        mode=normalized_dataset.mode,
-        changed=normalized_dataset.mode != "none",
-        n_objects=normalized_dataset.n_objects,
-        n_features=normalized_dataset.n_features,
-        parameters=dict(normalized_dataset.parameters),
-    )
-
-
-def normalized_dataset_to_frame(
-    normalized_dataset: NormalizedDataset,
-    include_object_label: bool = True,
-) -> pd.DataFrame:
-    """
-    Convert a normalized dataset to a DataFrame for export/debugging.
-    """
-    df = pd.DataFrame(
-        normalized_dataset.X_normalized,
-        columns=normalized_dataset.feature_names,
-    )
-    if include_object_label:
-        df.insert(0, "Object", normalized_dataset.object_labels)
-    df[normalized_dataset.class_column] = normalized_dataset.y
-    return df
-
-
-def compare_raw_vs_normalized(
-    dataset: LoadedDataset,
-    normalization_config: NormalizationConfig,
-) -> dict[str, pd.DataFrame]:
-    """
-    Convenience helper for debugging/export.
-
-    Returns:
-    - 'raw_frame'
-    - 'selected_frame'
-    - optionally 'normalized_frame'
-    """
-    variants = prepare_dataset_variants(dataset, normalization_config)
-
-    result: dict[str, pd.DataFrame] = {
-        "raw_frame": variants["raw"].to_frame(),
-        "selected_frame": variants["selected"].to_frame(),
-    }
-
-    if "normalized" in variants:
-        result["normalized_frame"] = variants["normalized"].to_frame()
-
-    return result

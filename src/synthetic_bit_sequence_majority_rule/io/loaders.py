@@ -233,13 +233,7 @@ def _detect_matrix_style_text_file(path: Path, delimiter: str) -> bool:
     if _is_shape_row(rows[0]):
         return True
 
-    expected_n_features: int | None = None
-    if _is_shape_row(rows[0]):
-        ints = _try_parse_int_tokens(rows[0])
-        if ints is not None:
-            _, expected_n_features, _ = ints
-
-    if _is_feature_sign_row(rows[-1], expected_n_features):
+    if _is_feature_sign_row(rows[-1], expected_n_features=None):
         return True
 
     return False

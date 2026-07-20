@@ -270,17 +270,6 @@ class OutputDirectoryError(IOErrorBase):
         super().__init__(f"Failed to prepare output directory '{self.path}': {self.reason}")
 
 
-class SerializationError(IOErrorBase):
-    """
-    Raised when serialization to JSON/CSV/Excel or similar fails.
-    """
-
-    def __init__(self, target: str, reason: str) -> None:
-        self.target = target
-        self.reason = reason
-        super().__init__(f"Serialization failed for '{self.target}': {self.reason}")
-
-
 # ============================================================
 # Service / pipeline errors
 # ============================================================
@@ -300,14 +289,3 @@ class PipelineExecutionError(ServiceError):
         self.stage = stage
         self.reason = reason
         super().__init__(f"Pipeline failed at stage '{self.stage}': {self.reason}")
-
-
-class ExperimentExecutionError(ServiceError):
-    """
-    Raised when a named experiment run fails.
-    """
-
-    def __init__(self, experiment_name: str, reason: str) -> None:
-        self.experiment_name = experiment_name
-        self.reason = reason
-        super().__init__(f"Experiment '{self.experiment_name}' failed: {self.reason}")

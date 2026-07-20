@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -20,21 +18,6 @@ from synthetic_bit_sequence_majority_rule.domain.schema import (
     dataset_normalized_flag,
     ensure_loaded_dataset,
 )
-
-
-# ============================================================
-# Internal summary dataclass
-# ============================================================
-
-@dataclass(slots=True)
-class MajoritySummary:
-    metric_name: str
-    n_objects: int
-    full_k_values: list[int]
-    reduced_k_values: list[int]
-    normalization_mode: str
-    with_normalization: bool
-    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 # ============================================================
@@ -410,71 +393,9 @@ def build_multiple_majority_matrices(
     return results
 
 
-def compare_majority_runs(
-    raw_dataset: LoadedDataset,
-    raw_neighbor_results: dict[str, NeighborTableResult],
-    selected_dataset: LoadedDataset,
-    selected_neighbor_results: dict[str, NeighborTableResult],
-    k_values_config: KValuesConfig,
-    majority_rule_config: MajorityRuleConfig,
-    binary_sequence_config: BinarySequenceConfig,
-    decimal_encoding_config: DecimalEncodingConfig,
-    normalized_dataset: LoadedDataset | None = None,
-    normalized_neighbor_results: dict[str, NeighborTableResult] | None = None,
-) -> dict[str, dict[str, MajorityMatricesResult]]:
-    """
-    Build majority outputs for conceptual branches:
-    - raw
-    - selected
-    - normalized (optional)
-    """
-    results: dict[str, dict[str, MajorityMatricesResult]] = {
-        "raw": build_multiple_majority_matrices(
-            dataset=raw_dataset,
-            neighbor_results=raw_neighbor_results,
-            k_values_config=k_values_config,
-            majority_rule_config=majority_rule_config,
-            binary_sequence_config=binary_sequence_config,
-            decimal_encoding_config=decimal_encoding_config,
-        ),
-        "selected": build_multiple_majority_matrices(
-            dataset=selected_dataset,
-            neighbor_results=selected_neighbor_results,
-            k_values_config=k_values_config,
-            majority_rule_config=majority_rule_config,
-            binary_sequence_config=binary_sequence_config,
-            decimal_encoding_config=decimal_encoding_config,
-        ),
-    }
-
-    if normalized_dataset is not None and normalized_neighbor_results is not None:
-        results["normalized"] = build_multiple_majority_matrices(
-            dataset=normalized_dataset,
-            neighbor_results=normalized_neighbor_results,
-            k_values_config=k_values_config,
-            majority_rule_config=majority_rule_config,
-            binary_sequence_config=binary_sequence_config,
-            decimal_encoding_config=decimal_encoding_config,
-        )
-
-    return results
-
-
 # ============================================================
 # Summary / conversion helpers
 # ============================================================
-
-def build_majority_summary(result: MajorityMatricesResult) -> MajoritySummary:
-    return MajoritySummary(
-        metric_name=result.metric_name,
-        n_objects=len(result.object_labels),
-        full_k_values=list(result.full_k_values),
-        reduced_k_values=list(result.reduced_k_values),
-        normalization_mode=str(result.metadata.get("normalization_mode", "none")),
-        with_normalization=bool(result.metadata.get("with_normalization", False)),
-        metadata=dict(result.metadata),
-    )
-
 
 def same_class_indicator_frame(result: MajorityMatricesResult) -> pd.DataFrame:
     """

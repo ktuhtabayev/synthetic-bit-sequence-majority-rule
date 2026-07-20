@@ -547,7 +547,6 @@ class NotesConfig:
     problem: str = ""
     limitation: str = ""
     switching_rule: str = ""
-    quick_tests_rule: str = ""
 
     def validate(self) -> None:
         return
@@ -561,7 +560,6 @@ class NotesConfig:
             problem=str(d.get("problem", "")),
             limitation=str(d.get("limitation", "")),
             switching_rule=str(d.get("switching_rule", "")),
-            quick_tests_rule=str(d.get("quick_tests_rule", "")),
         )
         cfg.validate()
         return cfg

@@ -288,7 +288,6 @@ def config_to_dict(config: AppConfig) -> dict[str, Any]:
             "problem": config.notes.problem,
             "limitation": config.notes.limitation,
             "switching_rule": config.notes.switching_rule,
-            "quick_tests_rule": config.notes.quick_tests_rule,
         },
     }
 

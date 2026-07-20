@@ -347,10 +347,9 @@ tests/          Pytest suite
 Core package modules:
 
 ```text
-algorithms/     distances, neighbors, majority, statistics
+algorithms/     distances, neighbors, majority, statistics, meta objects
 domain/         schemas, config dataclasses, custom errors
 gui/            PyQt6 desktop application
 io/             config loading, dataset loading, output writers
-services/       end-to-end runner and report helpers
-utils/          small package utilities
+services/       end-to-end runner, full-analysis orchestration, report helpers
 ```

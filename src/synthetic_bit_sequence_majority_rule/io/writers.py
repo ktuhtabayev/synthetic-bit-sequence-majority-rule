@@ -14,10 +14,6 @@ from synthetic_bit_sequence_majority_rule.algorithms.majority import (
     b_reduced_frame,
     same_class_indicator_frame,
 )
-from synthetic_bit_sequence_majority_rule.algorithms.neighbors import (
-    neighbor_distances_to_frame,
-    neighbor_labels_to_frame,
-)
 from synthetic_bit_sequence_majority_rule.domain.errors import OutputDirectoryError, OutputWriteError
 from synthetic_bit_sequence_majority_rule.io.configs import config_to_dict
 from synthetic_bit_sequence_majority_rule.services.runner import PipelineRunResult
@@ -179,8 +175,8 @@ def write_pipeline_outputs(result: PipelineRunResult, output_root: str | Path | 
         if result.config.exports.neighbors_tables:
             neighbors_dir = ensure_output_dir(branch_dir / "neighbors")
             for metric_name, neighbor_result in branch.neighbor_results.items():
-                _write_frame(neighbors_dir / f"{metric_name}_labels.csv", neighbor_labels_to_frame(neighbor_result))
-                _write_frame(neighbors_dir / f"{metric_name}_distances.csv", neighbor_distances_to_frame(neighbor_result))
+                _write_frame(neighbors_dir / f"{metric_name}_labels.csv", neighbor_result.labels_frame())
+                _write_frame(neighbors_dir / f"{metric_name}_distances.csv", neighbor_result.distances_frame())
 
         majority_dir = ensure_output_dir(branch_dir / "majority")
         for metric_name, majority_result in branch.majority_results.items():

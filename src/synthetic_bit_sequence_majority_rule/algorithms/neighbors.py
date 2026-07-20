@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
 
 import pandas as pd
@@ -11,21 +10,6 @@ from synthetic_bit_sequence_majority_rule.domain.schema import (
     DistanceMatrixResult,
     NeighborTableResult,
 )
-
-
-# ============================================================
-# Internal summary dataclass
-# ============================================================
-
-@dataclass(slots=True)
-class NeighborSummary:
-    metric_name: str
-    n_objects: int
-    neighbor_count: int
-    tie_break_rule: str
-    exclude_self: bool
-    normalized: bool
-    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 # ============================================================
@@ -137,61 +121,6 @@ def build_multiple_neighbor_tables(
     for metric_name, distance_result in distance_results.items():
         results[metric_name] = build_neighbor_table(distance_result, neighbors_config)
     return results
-
-
-def compare_neighbor_runs(
-    raw_distance_results: dict[str, DistanceMatrixResult],
-    selected_distance_results: dict[str, DistanceMatrixResult],
-    neighbors_config: NeighborsConfig,
-    normalized_distance_results: dict[str, DistanceMatrixResult] | None = None,
-) -> dict[str, dict[str, NeighborTableResult]]:
-    """
-    Build neighbor tables for conceptual branches:
-    - raw
-    - selected
-    - normalized (optional)
-
-    Branch semantics:
-    - raw       : original dataset
-    - selected  : dataset actually selected by default.yaml normalization mode
-    - normalized: explicit normalized dataset branch when normalization mode is not none
-    """
-    results: dict[str, dict[str, NeighborTableResult]] = {
-        "raw": build_multiple_neighbor_tables(raw_distance_results, neighbors_config),
-        "selected": build_multiple_neighbor_tables(selected_distance_results, neighbors_config),
-    }
-
-    if normalized_distance_results is not None:
-        results["normalized"] = build_multiple_neighbor_tables(
-            normalized_distance_results,
-            neighbors_config,
-        )
-
-    return results
-
-
-# ============================================================
-# Summary / conversion helpers
-# ============================================================
-
-def build_neighbor_summary(result: NeighborTableResult) -> NeighborSummary:
-    return NeighborSummary(
-        metric_name=result.metric_name,
-        n_objects=result.n_objects,
-        neighbor_count=result.neighbor_count,
-        tie_break_rule=result.tie_break_rule,
-        exclude_self=True,
-        normalized=bool(result.metadata.get("with_normalization", False)),
-        metadata=dict(result.metadata),
-    )
-
-
-def neighbor_labels_to_frame(result: NeighborTableResult) -> pd.DataFrame:
-    return result.labels_frame()
-
-
-def neighbor_distances_to_frame(result: NeighborTableResult) -> pd.DataFrame:
-    return result.distances_frame()
 
 
 def neighbor_combined_frame(result: NeighborTableResult) -> pd.DataFrame:
