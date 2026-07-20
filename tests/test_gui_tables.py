@@ -12,10 +12,10 @@ from PyQt6.QtCore import Qt  # noqa: E402
 from PyQt6.QtWidgets import QApplication, QHeaderView  # noqa: E402
 
 from synthetic_bit_sequence_majority_rule.gui.app import (  # noqa: E402
-    GRAY_APP_STYLESHEET,
     MainWindow,
     frame_to_table,
 )
+from synthetic_bit_sequence_majority_rule.gui.theme import THEME, build_stylesheet  # noqa: E402
 from synthetic_bit_sequence_majority_rule.io.configs import load_default_config  # noqa: E402
 from synthetic_bit_sequence_majority_rule.services.analysis import (  # noqa: E402
     build_comparison_from_run,
@@ -94,17 +94,19 @@ def test_gui_table_values_are_center_aligned_for_text_and_numbers() -> None:
             assert int(alignment) == expected_alignment
 
 
-def test_gui_stylesheet_uses_light_gray_theme_with_dark_text() -> None:
-    assert "#eeeeee" in GRAY_APP_STYLESHEET
-    assert "#fafafa" in GRAY_APP_STYLESHEET
-    assert "color: #202020" in GRAY_APP_STYLESHEET
+def test_gui_stylesheet_is_built_from_theme_colors() -> None:
+    stylesheet = build_stylesheet()
+    assert THEME["window_bg"] in stylesheet
+    assert THEME["accent"] in stylesheet
+    assert f"color: {THEME['text']}" in stylesheet
+    assert "#primaryButton" in stylesheet
 
 
 def test_metrics_dropdown_initializes_from_config_and_updates_text() -> None:
     app = QApplication.instance() or QApplication([])
     assert app is not None
 
-    window = MainWindow(Path.cwd())
+    window = MainWindow(Path.cwd(), restore_settings=False)
 
     assert window.normalization.currentText() == "none"
     assert window._selected_metric_names() == ["euclidean", "chebyshev", "canberra", "manhattan"]
@@ -125,7 +127,7 @@ def test_metrics_dropdown_falls_back_to_euclidean_when_all_unchecked() -> None:
     app = QApplication.instance() or QApplication([])
     assert app is not None
 
-    window = MainWindow(Path.cwd())
+    window = MainWindow(Path.cwd(), restore_settings=False)
     for action in window.metric_actions.values():
         action.setChecked(False)
     window._update_metric_button_text()
@@ -136,13 +138,40 @@ def test_metrics_dropdown_falls_back_to_euclidean_when_all_unchecked() -> None:
     assert cfg.metrics.enabled == ["euclidean"]
 
 
+def test_dataset_preset_dropdown_fills_path_and_tracks_custom_edits() -> None:
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    window = MainWindow(Path.cwd(), restore_settings=False)
+
+    preset_names = [
+        window.dataset_preset.itemText(index)
+        for index in range(window.dataset_preset.count())
+    ]
+    assert preset_names[0] == "Custom..."
+    assert "default_csv" in preset_names
+    assert "ionosfera_dat" in preset_names
+
+    # The default config path matches the default_csv preset.
+    assert window.dataset_preset.currentText() == "default_csv"
+
+    row = preset_names.index("ionosfera_dat")
+    window.dataset_preset.setCurrentIndex(row)
+    window._on_dataset_preset_selected(row)
+    assert window.dataset_path.text().endswith("Ionosfera (350, 33, 2).dat")
+
+    window.dataset_path.setText(str(Path.cwd() / "datasets" / "nonexistent.csv"))
+    window._sync_preset_to_path()
+    assert window.dataset_preset.currentText() == "Custom..."
+
+
 def test_stability_plot_tab_exists_and_refreshes_after_populate() -> None:
     app = QApplication.instance() or QApplication([])
     assert app is not None
 
     cfg = load_default_config(Path.cwd() / "configs" / "default.yaml")
     result = run_pipeline(cfg, run_id="gui_stability_plot_test")
-    window = MainWindow(Path.cwd())
+    window = MainWindow(Path.cwd(), restore_settings=False)
     window.last_result = result
     window.populate_tabs(result)
     window.refresh_stability_plot()
@@ -161,7 +190,7 @@ def test_synthetic_features_and_meta_objects_tabs_exist_after_populate() -> None
     cfg = load_default_config(Path.cwd() / "configs" / "default.yaml")
     cfg.preprocessing.normalization.mode = "minmax"
     result = run_pipeline(cfg, run_id="gui_new_views_test")
-    window = MainWindow(Path.cwd())
+    window = MainWindow(Path.cwd(), restore_settings=False)
     window.last_result = result
     window.normalization_comparison = build_comparison_from_run(result)
     window.populate_tabs(result)

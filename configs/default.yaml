@@ -163,6 +163,22 @@ dataset_catalog:
     has_header: true
     delimiter: ","
 
+  hypertension_csv:
+    path: datasets/quantitative/hypertension/Hypertension (147, 29, 2).csv
+    alternate_paths:
+      - datasets/quantitative/hypertension/Hypertension (147, 29, 2).dat
+    format: csv
+    has_header: true
+    delimiter: ","
+
+  hypertension_dat:
+    path: datasets/quantitative/hypertension/Hypertension (147, 29, 2).dat
+    alternate_paths:
+      - datasets/quantitative/hypertension/Hypertension (147, 29, 2).csv
+    format: dat
+    has_header: false
+    delimiter: ","
+
   ionosfera_csv:
     path: datasets/quantitative/ionosfera/Ionosfera (350, 33, 2).csv
     alternate_paths:

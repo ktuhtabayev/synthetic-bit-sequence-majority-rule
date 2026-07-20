@@ -104,6 +104,23 @@ def load_default_config(path: str | Path = "configs/default.yaml") -> AppConfig:
     return load_app_config(path)
 
 
+def load_dataset_catalog(path: str | Path = "configs/default.yaml") -> dict[str, dict[str, Any]]:
+    """
+    Return the dataset_catalog presets from the config file, keyed by preset
+    name. Returns an empty dict when the section is missing.
+    """
+    raw = _read_yaml_file(path)
+    catalog = raw.get("dataset_catalog")
+    if not isinstance(catalog, Mapping):
+        return {}
+
+    presets: dict[str, dict[str, Any]] = {}
+    for name, entry in catalog.items():
+        if isinstance(entry, Mapping) and entry.get("path"):
+            presets[str(name)] = dict(entry)
+    return presets
+
+
 def load_experiments_config(path: str | Path = "configs/experiments.yaml") -> list[AppConfig]:
     raw = _read_yaml_file(path)
 

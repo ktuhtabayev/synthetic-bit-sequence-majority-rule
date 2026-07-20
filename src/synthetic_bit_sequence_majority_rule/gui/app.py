@@ -30,11 +30,19 @@ from synthetic_bit_sequence_majority_rule.gui.stability_plot import (
     build_stability_conclusion,
     prepare_stability_plot_series,
 )
+from synthetic_bit_sequence_majority_rule.gui.theme import (
+    STABILITY_BANDS,
+    THEME,
+    build_stylesheet,
+)
 from synthetic_bit_sequence_majority_rule.gui.synthetic_features import (
     build_synthetic_binary_frame,
     build_synthetic_decimal_frame,
 )
-from synthetic_bit_sequence_majority_rule.io.configs import load_default_config
+from synthetic_bit_sequence_majority_rule.io.configs import (
+    load_dataset_catalog,
+    load_default_config,
+)
 from synthetic_bit_sequence_majority_rule.services.analysis import (
     FullAnalysisResult,
     run_full_analysis,
@@ -50,6 +58,7 @@ try:
     from PyQt6.QtCore import (
         QAbstractTableModel,
         QModelIndex,
+        QSettings,
         QThread,
         QUrl,
         Qt,
@@ -79,76 +88,6 @@ try:
     )
 except ImportError as exc:  # pragma: no cover - depends on local GUI install
     raise RuntimeError("PyQt6 is required to launch the desktop GUI.") from exc
-
-
-GRAY_APP_STYLESHEET = """
-QMainWindow,
-QWidget {
-    background-color: #eeeeee;
-    color: #202020;
-}
-
-QLineEdit,
-QComboBox,
-QTextEdit,
-QTabWidget::pane,
-QTableView {
-    background-color: #fafafa;
-    color: #202020;
-    border: 1px solid #b8b8b8;
-}
-
-QPushButton,
-QToolButton,
-QTabBar::tab {
-    background-color: #dddddd;
-    color: #202020;
-    border: 1px solid #aaaaaa;
-    padding: 5px 10px;
-}
-
-QPushButton:hover,
-QToolButton:hover,
-QTabBar::tab:selected {
-    background-color: #f4f4f4;
-}
-
-QHeaderView::section {
-    background-color: #d6d6d6;
-    color: #202020;
-    border: 1px solid #b8b8b8;
-    padding: 4px;
-}
-
-QTableView::item {
-    background-color: #ffffff;
-}
-
-QTableView::item:alternate {
-    background-color: #f0f0f0;
-}
-
-QTableView::item:selected {
-    background-color: #1f7fcf;
-    color: #ffffff;
-}
-
-QScrollBar:vertical,
-QScrollBar:horizontal {
-    background-color: #e0e0e0;
-}
-
-QMenu {
-    background-color: #fafafa;
-    color: #202020;
-    border: 1px solid #aaaaaa;
-}
-
-QMenu::item:selected {
-    background-color: #dcecff;
-    color: #202020;
-}
-"""
 
 
 def _display_value(value: object, decimals: int) -> str:
@@ -293,7 +232,7 @@ class AnalysisWorker(QThread):
 class MainWindow(QMainWindow):
     AVAILABLE_METRICS = ("euclidean", "chebyshev", "canberra", "manhattan")
 
-    def __init__(self, project_root: Path) -> None:
+    def __init__(self, project_root: Path, restore_settings: bool = True) -> None:
         super().__init__()
         self.project_root = project_root
         self.config_path = project_root / "configs" / "default.yaml"
@@ -305,12 +244,22 @@ class MainWindow(QMainWindow):
         self.stability_conclusion: QTextEdit | None = None
         self.meta_object_figures: dict[str, Figure] = {}
         self.analysis_worker: AnalysisWorker | None = None
+        self.restore_settings = restore_settings
+        self.settings = QSettings("SyntheticBitSequenceMajorityRule", "DesktopApp")
+        self.dataset_catalog = load_dataset_catalog(self.config_path)
 
         self.setWindowTitle("Synthetic Bit Sequence Majority Rule")
         self.resize(1440, 860)
 
         self.dataset_path = QLineEdit()
         self.dataset_path.setPlaceholderText("Dataset path from config")
+        self.dataset_path.textEdited.connect(self._on_dataset_path_edited)
+
+        self.dataset_preset = QComboBox()
+        self.dataset_preset.addItem("Custom...")
+        for preset_name in self.dataset_catalog:
+            self.dataset_preset.addItem(preset_name)
+        self.dataset_preset.activated.connect(self._on_dataset_preset_selected)
 
         self.normalization = QComboBox()
         self.normalization.addItems(["none", "minmax", "zscore"])
@@ -339,6 +288,7 @@ class MainWindow(QMainWindow):
         browse_button.clicked.connect(self.choose_dataset)
 
         self.run_button = QPushButton("Run")
+        self.run_button.setObjectName("primaryButton")
         self.run_button.clicked.connect(self.run_current_pipeline)
 
         export_button = QPushButton("Export")
@@ -355,6 +305,7 @@ class MainWindow(QMainWindow):
 
         controls = QHBoxLayout()
         controls.addWidget(QLabel("Dataset"))
+        controls.addWidget(self.dataset_preset)
         controls.addWidget(self.dataset_path, 1)
         controls.addWidget(browse_button)
         controls.addWidget(QLabel("Normalization"))
@@ -374,6 +325,8 @@ class MainWindow(QMainWindow):
         root.setLayout(layout)
         self.setCentralWidget(root)
         self.load_defaults()
+        if self.restore_settings:
+            self._restore_saved_state()
 
     def load_defaults(self) -> None:
         cfg = load_default_config(self.config_path)
@@ -382,6 +335,59 @@ class MainWindow(QMainWindow):
         for metric, action in self.metric_actions.items():
             action.setChecked(metric in cfg.enabled_metrics)
         self._update_metric_button_text()
+        self._sync_preset_to_path()
+
+    def _restore_saved_state(self) -> None:
+        geometry = self.settings.value("window/geometry")
+        if geometry is not None:
+            self.restoreGeometry(geometry)
+
+        dataset_path = self.settings.value("controls/dataset_path", type=str)
+        if dataset_path and Path(dataset_path).exists():
+            self.dataset_path.setText(dataset_path)
+            self._sync_preset_to_path()
+
+        normalization = self.settings.value("controls/normalization", type=str)
+        if normalization in {"none", "minmax", "zscore"}:
+            self.normalization.setCurrentText(normalization)
+
+        metrics = self.settings.value("controls/metrics", type=list)
+        if metrics:
+            valid = [m for m in metrics if m in self.metric_actions]
+            if valid:
+                for metric, action in self.metric_actions.items():
+                    action.setChecked(metric in valid)
+                self._update_metric_button_text()
+
+    def _save_state(self) -> None:
+        self.settings.setValue("window/geometry", self.saveGeometry())
+        self.settings.setValue("controls/dataset_path", self.dataset_path.text().strip())
+        self.settings.setValue("controls/normalization", self.normalization.currentText())
+        self.settings.setValue("controls/metrics", self._selected_metric_names())
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if self.restore_settings:
+            self._save_state()
+        super().closeEvent(event)
+
+    def _on_dataset_preset_selected(self, index: int) -> None:
+        preset_name = self.dataset_preset.itemText(index)
+        entry = self.dataset_catalog.get(preset_name)
+        if entry is None:
+            return
+        self.dataset_path.setText(str(self.project_root / str(entry["path"])))
+
+    def _on_dataset_path_edited(self, _text: str) -> None:
+        self._sync_preset_to_path()
+
+    def _sync_preset_to_path(self) -> None:
+        """Show the matching preset name for the current path, else Custom."""
+        current = self.dataset_path.text().strip()
+        for row, (preset_name, entry) in enumerate(self.dataset_catalog.items(), start=1):
+            if current == str(self.project_root / str(entry["path"])):
+                self.dataset_preset.setCurrentIndex(row)
+                return
+        self.dataset_preset.setCurrentIndex(0)
 
     def _selected_metric_names(self) -> list[str]:
         return [
@@ -411,6 +417,7 @@ class MainWindow(QMainWindow):
         )
         if path:
             self.dataset_path.setText(path)
+            self._sync_preset_to_path()
 
     def _config_from_controls(self):
         cfg = load_default_config(self.config_path)
@@ -538,7 +545,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(save_button)
         controls.addStretch(1)
 
-        self.stability_plot_figure = Figure(figsize=(8, 4.8), facecolor="#fafafa")
+        self.stability_plot_figure = Figure(figsize=(8, 4.8), facecolor=THEME["figure_bg"])
         self.stability_plot_canvas = FigureCanvasQTAgg(self.stability_plot_figure)
 
         self.stability_conclusion = QTextEdit()
@@ -560,13 +567,11 @@ class MainWindow(QMainWindow):
 
         self.stability_plot_figure.clear()
         axis = self.stability_plot_figure.add_subplot(111)
-        axis.set_facecolor("#ffffff")
-        axis.axhspan(0.0, 0.5, color="#f5b7b1", alpha=0.18)
-        axis.axhspan(0.5, 0.6, color="#f9e79f", alpha=0.25)
-        axis.axhspan(0.6, 0.8, color="#abebc6", alpha=0.22)
-        axis.axhspan(0.8, 1.0, color="#aed6f1", alpha=0.24)
+        axis.set_facecolor(THEME["axes_bg"])
+        for low, high, color, alpha in STABILITY_BANDS:
+            axis.axhspan(low, high, color=color, alpha=alpha)
         for threshold in (0.5, 0.6, 0.8):
-            axis.axhline(threshold, color="#777777", linewidth=0.9, linestyle="--")
+            axis.axhline(threshold, color=THEME["plot_grid_line"], linewidth=0.9, linestyle="--")
 
         if self.last_result is None:
             axis.text(
@@ -738,11 +743,11 @@ class MainWindow(QMainWindow):
         if not result.available:
             return self._message_widget(result.message)
 
-        figure = Figure(figsize=(7.5, 4.8), facecolor="#fafafa")
+        figure = Figure(figsize=(7.5, 4.8), facecolor=THEME["figure_bg"])
         self.meta_object_figures[figure_key] = figure
         is_3d = result.requested_components == 3
         axis = figure.add_subplot(111, projection="3d") if is_3d else figure.add_subplot(111)
-        axis.set_facecolor("#ffffff")
+        axis.set_facecolor(THEME["axes_bg"])
 
         frame = result.frame
         if is_3d:
@@ -792,7 +797,7 @@ class MainWindow(QMainWindow):
                     "\n".join(notes),
                     transform=axis.transAxes,
                     fontsize=9,
-                    color="#555555",
+                    color=THEME["plot_note"],
                     va="bottom",
                 )
             else:
@@ -802,7 +807,7 @@ class MainWindow(QMainWindow):
                     "\n".join(notes),
                     transform=axis.transAxes,
                     fontsize=9,
-                    color="#555555",
+                    color=THEME["plot_note"],
                     va="bottom",
                 )
             for column in [col for col in ("PC1", "PC2", "PC3") if col in frame.columns]:
@@ -832,11 +837,11 @@ class MainWindow(QMainWindow):
         if not result.available:
             return self._message_widget(result.message)
 
-        figure = Figure(figsize=(7.5, 4.8), facecolor="#fafafa")
+        figure = Figure(figsize=(7.5, 4.8), facecolor=THEME["figure_bg"])
         self.meta_object_figures[figure_key] = figure
         is_3d = result.requested_components == 3
         axis = figure.add_subplot(111, projection="3d") if is_3d else figure.add_subplot(111)
-        axis.set_facecolor("#ffffff")
+        axis.set_facecolor(THEME["axes_bg"])
         frame = result.frame
         metrics = frame["Metric"].drop_duplicates().astype(str).tolist()
         colors = {
@@ -966,7 +971,10 @@ class MainWindow(QMainWindow):
 def main() -> None:  # pragma: no cover - GUI entrypoint
     project_root = Path(__file__).resolve().parents[3]
     app = QApplication([])
-    app.setStyleSheet(GRAY_APP_STYLESHEET)
+    app.setOrganizationName("SyntheticBitSequenceMajorityRule")
+    app.setApplicationName("DesktopApp")
+    app.setStyle("Fusion")
+    app.setStyleSheet(build_stylesheet())
     window = MainWindow(project_root)
     window.show()
     app.exec()

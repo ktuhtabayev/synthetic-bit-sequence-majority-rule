@@ -90,11 +90,12 @@ Select either file through the GUI Dataset button, or copy the corresponding
 
 The PyQt6 app is a local research dashboard. It provides:
 
-- dataset picker
+- dataset preset dropdown (from `dataset_catalog` in `configs/default.yaml`) plus a free path picker
 - normalization selector: none, minmax, zscore
 - metric selector: Euclidean, Chebyshev, Canberra, Manhattan
-- Run and Export actions
-- Open Output Folder action
+- Run action that executes in a background thread with a busy indicator
+- Export and Open Output Folder actions
+- window geometry and last-used controls persist between sessions
 - grouped result tabs:
   - Dataset
   - Final Comparison
