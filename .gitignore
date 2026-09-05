@@ -76,6 +76,7 @@ outputs/
 *.orig
 tmp/
 .agents/
+.claude/
 
 # =========================
 # Local configuration
