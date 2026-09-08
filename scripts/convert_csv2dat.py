@@ -11,8 +11,12 @@ def main() -> None:
     # output_path = r"datasets\raw\dog-wolf\dog-wolf.dat"
 
     # Example 2
-    input_path = r"datasets\raw\gipertaniya\gipertaniya.csv"
-    output_path = r"datasets\raw\gipertaniya\gipertaniya.dat"
+    # input_path = r"datasets\raw\gipertaniya\gipertaniya.csv"
+    # output_path = r"datasets\raw\gipertaniya\gipertaniya.dat"
+
+    # Example 3
+    input_path = r"datasets\nominal\molecular-biology\Molecular-Biology (106, 57, 2).csv"
+    output_path = r"datasets\nominal\molecular-biology\Molecular-Biology (106, 57, 2).dat"
 
     input_path = Path(input_path)
     output_path = Path(output_path)

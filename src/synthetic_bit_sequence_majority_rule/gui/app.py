@@ -338,32 +338,13 @@ class MainWindow(QMainWindow):
         self._sync_preset_to_path()
 
     def _restore_saved_state(self) -> None:
+        # Keep dataset, normalization, and metrics at their configured defaults.
         geometry = self.settings.value("window/geometry")
         if geometry is not None:
             self.restoreGeometry(geometry)
 
-        dataset_path = self.settings.value("controls/dataset_path", type=str)
-        if dataset_path and Path(dataset_path).exists():
-            self.dataset_path.setText(dataset_path)
-            self._sync_preset_to_path()
-
-        normalization = self.settings.value("controls/normalization", type=str)
-        if normalization in {"none", "minmax", "zscore"}:
-            self.normalization.setCurrentText(normalization)
-
-        metrics = self.settings.value("controls/metrics", type=list)
-        if metrics:
-            valid = [m for m in metrics if m in self.metric_actions]
-            if valid:
-                for metric, action in self.metric_actions.items():
-                    action.setChecked(metric in valid)
-                self._update_metric_button_text()
-
     def _save_state(self) -> None:
         self.settings.setValue("window/geometry", self.saveGeometry())
-        self.settings.setValue("controls/dataset_path", self.dataset_path.text().strip())
-        self.settings.setValue("controls/normalization", self.normalization.currentText())
-        self.settings.setValue("controls/metrics", self._selected_metric_names())
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
         if self.restore_settings:

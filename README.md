@@ -56,12 +56,16 @@ The default configuration is:
 configs/default.yaml
 ```
 
-The default dataset remains:
+The startup dataset is:
 
 ```text
 datasets/default.csv
-datasets/default.dat
 ```
+
+The GUI starts with the defaults in `configs/default.yaml` on every launch:
+`default.csv`, normalization `none`, and all four metrics. Changes to these
+selections apply to the current session. `datasets/default.dat` is available as
+an alternate format.
 
 Available project datasets:
 
@@ -95,7 +99,7 @@ The PyQt6 app is a local research dashboard. It provides:
 - metric selector: Euclidean, Chebyshev, Canberra, Manhattan
 - Run action that executes in a background thread with a busy indicator
 - Export and Open Output Folder actions
-- window geometry and last-used controls persist between sessions
+- window geometry persists between sessions; dataset, normalization, and metrics reset to the configured defaults
 - grouped result tabs:
   - Dataset
   - Distances
