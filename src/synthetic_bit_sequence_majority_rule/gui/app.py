@@ -245,7 +245,7 @@ class MainWindow(QMainWindow):
         self.meta_object_figures: dict[str, Figure] = {}
         self.analysis_worker: AnalysisWorker | None = None
         self.restore_settings = restore_settings
-        self.settings = QSettings("SyntheticBitSequenceMajorityRule", "DesktopApp")
+        self.settings = QSettings("synthetic-bit-sequence-majority-rule", "DesktopApp")
         self.dataset_catalog = load_dataset_catalog(self.config_path)
 
         self.setWindowTitle("Synthetic Bit Sequence Majority Rule")
@@ -952,7 +952,7 @@ class MainWindow(QMainWindow):
 def main() -> None:  # pragma: no cover - GUI entrypoint
     project_root = Path(__file__).resolve().parents[3]
     app = QApplication([])
-    app.setOrganizationName("SyntheticBitSequenceMajorityRule")
+    app.setOrganizationName("synthetic-bit-sequence-majority-rule")
     app.setApplicationName("DesktopApp")
     app.setStyle("Fusion")
     app.setStyleSheet(build_stylesheet())

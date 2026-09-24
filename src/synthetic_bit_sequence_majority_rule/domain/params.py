@@ -46,7 +46,7 @@ def _to_list_of_str(value: Sequence[Any] | None, name: str) -> list[str]:
 
 @dataclass(slots=True)
 class ProjectConfig:
-    name: str = "SyntheticBitSequenceMajorityRule"
+    name: str = "synthetic-bit-sequence-majority-rule"
     version: str = "0.1.0"
 
     def validate(self) -> None:

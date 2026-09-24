@@ -11,11 +11,24 @@ No web frontend, database, or server is used.
 
 ## Setup
 
-Use the project virtual environment from the repository root:
+Clone the repository:
 
 ```powershell
+git clone https://github.com/ktuhtabayev/synthetic-bit-sequence-majority-rule.git
+cd synthetic-bit-sequence-majority-rule
+```
+
+Create the project virtual environment and install the package from the repository root:
+
+```powershell
+python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 ```
+
+The code resolves all project paths relative to the repository root, but a
+virtual environment stores absolute paths (activation scripts, console launchers
+such as `pytest.exe`, and the editable install). If the project folder is moved
+or renamed, delete `.venv` and create it again.
 
 If PyQt6 is missing:
 
