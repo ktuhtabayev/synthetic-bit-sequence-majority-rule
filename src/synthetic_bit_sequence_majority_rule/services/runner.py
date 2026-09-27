@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from synthetic_bit_sequence_majority_rule.algorithms.distances import (
     compute_multiple_distance_matrices,
@@ -73,7 +74,8 @@ class PipelineRunResult:
 def make_run_id(run_name: str) -> str:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_name = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in run_name)
-    return f"{safe_name}_{timestamp}"
+    # The random suffix keeps two runs started in the same second in separate folders.
+    return f"{safe_name}_{timestamp}_{uuid4().hex[:8]}"
 
 
 def run_pipeline(config: AppConfig, run_id: str | None = None) -> PipelineRunResult:

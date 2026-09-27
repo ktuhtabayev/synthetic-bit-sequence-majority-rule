@@ -155,7 +155,12 @@ def _stats_payload(result: PipelineRunResult) -> dict[str, Any]:
     }
 
 
-def write_pipeline_outputs(result: PipelineRunResult, output_root: str | Path | None = None) -> Path:
+def write_pipeline_outputs(
+    result: PipelineRunResult,
+    output_root: str | Path | None = None,
+    *,
+    prune_old_runs: bool = True,
+) -> Path:
     root = Path(output_root) if output_root is not None else Path(result.config.run.output_root)
     run_dir = ensure_output_dir(root / result.run_id)
 
@@ -212,7 +217,7 @@ def write_pipeline_outputs(result: PipelineRunResult, output_root: str | Path | 
         if result.config.exports.excel:
             _write_branch_excel(branch_dir / "summary.xlsx", branch)
 
-    if result.run_id.startswith("default_run_"):
+    if prune_old_runs and result.run_id.startswith("default_run_"):
         prune_full_run_outputs(root, keep_latest=3)
 
     return run_dir

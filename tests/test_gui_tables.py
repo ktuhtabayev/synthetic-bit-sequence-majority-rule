@@ -9,11 +9,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from pathlib import Path
 
 from PyQt6.QtCore import Qt  # noqa: E402
-from PyQt6.QtWidgets import QApplication, QHeaderView  # noqa: E402
+from PyQt6.QtWidgets import QApplication, QHeaderView, QMessageBox  # noqa: E402
 
 from synthetic_bit_sequence_majority_rule.gui.app import (  # noqa: E402
+    AnalysisWorker,
     MainWindow,
     frame_to_table,
+    run_output_dir,
 )
 from synthetic_bit_sequence_majority_rule.gui.theme import THEME, build_stylesheet  # noqa: E402
 from synthetic_bit_sequence_majority_rule.io.configs import load_default_config  # noqa: E402
@@ -228,3 +230,70 @@ def test_synthetic_features_and_meta_objects_tabs_exist_after_populate() -> None
         "PCA 3D",
     ]
     assert "normalization_comparison_2d" in window.meta_object_figures
+
+
+def _run_in_worker(tmp_path: Path):
+    """Run the GUI worker synchronously, with outputs redirected to tmp_path."""
+    cfg = load_default_config(Path.cwd() / "configs" / "default.yaml")
+    cfg.run.output_root = str(tmp_path)
+    worker = AnalysisWorker(cfg, Path.cwd())
+    finished = []
+    failures = []
+    worker.finished_ok.connect(finished.append)
+    worker.failed.connect(failures.append)
+    worker.run()
+    assert not failures and len(finished) == 1, failures
+    return finished[0]
+
+
+def _finished_window(tmp_path: Path, monkeypatch) -> MainWindow:
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+    monkeypatch.setattr(QMessageBox, "information", lambda *args, **kwargs: None)
+
+    window = MainWindow(Path.cwd(), restore_settings=False)
+    window._on_analysis_finished(_run_in_worker(tmp_path))
+    return window
+
+
+def test_a_finished_run_writes_nothing_until_export(tmp_path, monkeypatch) -> None:
+    window = _finished_window(tmp_path, monkeypatch)
+
+    assert window.last_output_dir is None
+    assert not window.open_output_button.isEnabled()
+    assert "Output folder: Not exported" in window.status_text.toPlainText()
+    assert not any(tmp_path.iterdir())
+
+
+def test_export_writes_the_run_folder_and_enables_open_output(tmp_path, monkeypatch) -> None:
+    window = _finished_window(tmp_path, monkeypatch)
+    expected_dir = run_output_dir(window.last_result, window.project_root)
+    assert expected_dir == tmp_path / "gui" / window.last_result.run_id
+
+    window.export_last_result()
+
+    assert window.last_output_dir == expected_dir
+    assert (expected_dir / "run_info.json").is_file()
+    assert (expected_dir / "normalization_comparison" / "meta_objects.csv").is_file()
+    assert window.open_output_button.isEnabled()
+    assert f"Output folder: {expected_dir}" in window.status_text.toPlainText()
+
+
+def test_saving_a_plot_writes_only_that_png_and_enables_open_output(tmp_path, monkeypatch) -> None:
+    window = _finished_window(tmp_path, monkeypatch)
+    expected_dir = run_output_dir(window.last_result, window.project_root)
+
+    window.save_stability_plot()
+
+    assert window.last_output_dir == expected_dir
+    assert [path.relative_to(expected_dir) for path in expected_dir.rglob("*") if path.is_file()] == [
+        Path("selected") / "stability_plot.png"
+    ]
+    assert window.open_output_button.isEnabled()
+    assert f"Output folder: {expected_dir}" in window.status_text.toPlainText()
+
+    # The next Run has not been exported yet, so the button greys out again.
+    window._on_analysis_finished(_run_in_worker(tmp_path))
+    assert window.last_output_dir is None
+    assert not window.open_output_button.isEnabled()
+

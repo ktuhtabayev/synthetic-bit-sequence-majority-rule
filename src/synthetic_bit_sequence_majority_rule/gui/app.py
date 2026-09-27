@@ -45,6 +45,7 @@ from synthetic_bit_sequence_majority_rule.io.configs import (
 )
 from synthetic_bit_sequence_majority_rule.services.analysis import (
     FullAnalysisResult,
+    analysis_output_dir,
     run_full_analysis,
     write_analysis_outputs,
 )
@@ -208,7 +209,7 @@ def _distance_frame(distance_result) -> pd.DataFrame:
 class AnalysisWorker(QThread):
     """Run the full analysis off the GUI thread so the window stays responsive."""
 
-    finished_ok = pyqtSignal(object)  # FullAnalysisResult
+    finished_ok = pyqtSignal(object)  # FullAnalysisResult; nothing is written until Export
     failed = pyqtSignal(str)
 
     def __init__(self, config, project_root: Path, parent=None) -> None:
@@ -221,12 +222,17 @@ class AnalysisWorker(QThread):
             analysis = run_full_analysis(
                 self._config,
                 project_root=self._project_root,
-                write_outputs=True,
+                write_outputs=False,
             )
         except Exception as exc:
             self.failed.emit(str(exc))
         else:
             self.finished_ok.emit(analysis)
+
+
+def run_output_dir(result: PipelineRunResult, project_root: Path) -> Path:
+    """The folder Export writes this run to (and where saved plots go)."""
+    return analysis_output_dir(result, project_root, gui_export=True)
 
 
 class MainWindow(QMainWindow):
@@ -443,12 +449,10 @@ class MainWindow(QMainWindow):
     def _on_analysis_finished(self, analysis: FullAnalysisResult) -> None:
         self.last_result = analysis.pipeline
         self.normalization_comparison = analysis.comparison
-        self.last_output_dir = analysis.output_dir
+        self.last_output_dir = None
         self.populate_tabs(analysis.pipeline)
-        self.open_output_button.setEnabled(analysis.output_dir is not None)
-        self.status_text.setPlainText(
-            self._status_summary(analysis.pipeline, self.last_output_dir)
-        )
+        self.open_output_button.setEnabled(False)
+        self.status_text.setPlainText(self._status_summary(analysis.pipeline, None))
 
     def _on_analysis_failed(self, message: str) -> None:
         QMessageBox.critical(self, "Run failed", message)
@@ -599,14 +603,17 @@ class MainWindow(QMainWindow):
         if self.stability_plot_figure is None:
             QMessageBox.information(self, "No plot", "Run the pipeline and refresh the plot first.")
             return
-        if self.last_output_dir is None:
-            QMessageBox.information(self, "No output folder", "Run or export first.")
+        if self.last_result is None:
+            QMessageBox.information(self, "No plot", "Run the pipeline first.")
             return
 
+        self.last_output_dir = run_output_dir(self.last_result, self.project_root)
         target_dir = self.last_output_dir / "selected"
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / "stability_plot.png"
         self.stability_plot_figure.savefig(target_path, dpi=160, bbox_inches="tight")
+        self.open_output_button.setEnabled(True)
+        self._refresh_status()
         QMessageBox.information(self, "Plot saved", str(target_path))
 
     def _synthetic_features_space_tab(self, branch: PipelineBranchResult) -> QWidget:
@@ -898,10 +905,11 @@ class MainWindow(QMainWindow):
         if figure is None:
             QMessageBox.information(self, "No plot", "This PCA visualization is not available.")
             return
-        if self.last_output_dir is None:
-            QMessageBox.information(self, "No output folder", "Run or export first.")
+        if self.last_result is None:
+            QMessageBox.information(self, "No plot", "Run the pipeline first.")
             return
 
+        self.last_output_dir = run_output_dir(self.last_result, self.project_root)
         if figure_key.startswith("normalization_comparison_"):
             target_dir = self.last_output_dir / "normalization_comparison"
         else:
@@ -909,7 +917,13 @@ class MainWindow(QMainWindow):
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / f"{figure_key}.png"
         figure.savefig(target_path, dpi=160, bbox_inches="tight")
+        self.open_output_button.setEnabled(True)
+        self._refresh_status()
         QMessageBox.information(self, "Plot saved", str(target_path))
+
+    def _refresh_status(self) -> None:
+        if self.last_result is not None:
+            self.status_text.setPlainText(self._status_summary(self.last_result, self.last_output_dir))
 
     def _status_summary(self, result: PipelineRunResult, output_dir: Path | None) -> str:
         branch = result.selected_branch
@@ -935,6 +949,7 @@ class MainWindow(QMainWindow):
                 self.last_result,
                 self.normalization_comparison,
                 self.project_root,
+                gui_export=True,
             )
             self.open_output_button.setEnabled(True)
             self.status_text.setPlainText(self._status_summary(self.last_result, self.last_output_dir))
@@ -944,7 +959,7 @@ class MainWindow(QMainWindow):
 
     def open_output_folder(self) -> None:
         if self.last_output_dir is None:
-            QMessageBox.information(self, "No output folder", "Run or export first.")
+            QMessageBox.information(self, "No output folder", "Export first.")
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.last_output_dir)))
 

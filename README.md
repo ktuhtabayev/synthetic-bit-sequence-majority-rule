@@ -126,21 +126,29 @@ The PyQt6 app is a local research dashboard. It provides:
   - Meta Objects, including `Complexity C(Q)` and `None vs MinMax`
   - Final Comparison
 
-The Run button computes the selected pipeline, automatically derives the paired
-`none`/`minmax` comparison, and writes outputs immediately.
+The Run button computes the selected pipeline and automatically derives the paired
+`none`/`minmax` comparison. A GUI run only computes and shows results; nothing is
+written until you press Export, which writes `outputs/runs/gui/<run_id>/` (pressing it
+again rewrites the same folder). Saving a plot puts just that PNG in the same folder
+(`selected/` or `normalization_comparison/`) without requiring an Export first.
+Open Output Folder stays disabled until an Export or a plot save has written that
+folder.
 
 ## Outputs
 
-Full pipeline outputs are written under:
+Command-pipeline runs write their outputs under `outputs/runs/<run_id>/`; GUI exports
+go to their own folder:
 
 ```text
-outputs/runs/<run_id>/
+outputs/runs/<run_id>/        command pipeline
+outputs/runs/gui/<run_id>/    GUI Export and saved plots
 ```
 
-For the default runner, run ids look like:
+Run ids carry a short random suffix, so two runs started in the same second never
+share a folder:
 
 ```text
-default_run_YYYYMMDD_HHMMSS
+default_run_YYYYMMDD_HHMMSS_xxxxxxxx
 ```
 
 Each run contains:
@@ -170,7 +178,9 @@ Each run contains:
   - `normalization_comparison/pca_3d.csv`, when three components are available
   - `normalization_comparison/comparison_info.json`
 
-Automatic cleanup keeps the latest 3 folders named `default_run_*`. Folders named `quick_*` are preserved.
+After each command-pipeline run, automatic cleanup keeps the latest 3 folders named
+`default_run_*` directly under `outputs/runs/`. GUI exports in `outputs/runs/gui/` and
+folders named `quick_*` are never removed.
 
 ## Algorithm
 

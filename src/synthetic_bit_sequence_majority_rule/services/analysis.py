@@ -39,15 +39,41 @@ def build_comparison_from_run(
     )
 
 
+GUI_EXPORTS_DIR = "gui"
+
+
+def analysis_output_dir(
+    pipeline: PipelineRunResult,
+    project_root: Path | None = None,
+    *,
+    gui_export: bool = False,
+) -> Path:
+    """
+    The folder a run is written to: <output_root>/<run_id>/, or
+    <output_root>/gui/<run_id>/ for a GUI export.
+    """
+    output_root = Path(pipeline.config.run.output_root)
+    if project_root is not None:
+        output_root = Path(project_root) / output_root
+    if gui_export:
+        output_root = output_root / GUI_EXPORTS_DIR
+    return output_root / pipeline.run_id
+
+
 def write_analysis_outputs(
     pipeline: PipelineRunResult,
     comparison: NormalizationComparisonResult,
     project_root: Path | None = None,
+    *,
+    gui_export: bool = False,
 ) -> Path:
-    output_root = Path(pipeline.config.run.output_root)
-    if project_root is not None:
-        output_root = Path(project_root) / output_root
-    output_dir = write_pipeline_outputs(pipeline, output_root)
+    """
+    Write the run and its none-vs-minmax comparison. Command-line runs keep
+    only their latest folders; a GUI export is deliberate, so it lives in its
+    own folder and is never pruned.
+    """
+    output_dir = analysis_output_dir(pipeline, project_root, gui_export=gui_export)
+    write_pipeline_outputs(pipeline, output_dir.parent, prune_old_runs=not gui_export)
     write_normalization_comparison_outputs(comparison, output_dir)
     return output_dir
 
