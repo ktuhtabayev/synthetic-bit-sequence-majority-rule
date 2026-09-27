@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from numbers import Real
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import pandas as pd
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -367,14 +367,18 @@ class MainWindow(QMainWindow):
     def _on_dataset_path_edited(self, _text: str) -> None:
         self._sync_preset_to_path()
 
+    def _matching_preset(self) -> tuple[int, dict[str, Any]] | None:
+        """The dropdown row and catalog entry whose path is the current path, if any."""
+        current = self.dataset_path.text().strip()
+        for row, entry in enumerate(self.dataset_catalog.values(), start=1):
+            if current == str(self.project_root / str(entry["path"])):
+                return row, entry
+        return None
+
     def _sync_preset_to_path(self) -> None:
         """Show the matching preset name for the current path, else Custom."""
-        current = self.dataset_path.text().strip()
-        for row, (preset_name, entry) in enumerate(self.dataset_catalog.items(), start=1):
-            if current == str(self.project_root / str(entry["path"])):
-                self.dataset_preset.setCurrentIndex(row)
-                return
-        self.dataset_preset.setCurrentIndex(0)
+        match = self._matching_preset()
+        self.dataset_preset.setCurrentIndex(match[0] if match is not None else 0)
 
     def _selected_metric_names(self) -> list[str]:
         return [
@@ -410,15 +414,29 @@ class MainWindow(QMainWindow):
         cfg = load_default_config(self.config_path)
         dataset_text = self.dataset_path.text().strip()
         if dataset_text:
-            dataset = Path(dataset_text)
-            try:
-                cfg.dataset.path = dataset.relative_to(self.project_root)
-            except ValueError:
-                cfg.dataset.path = dataset
+            # Absolute paths, so a Run does not depend on the folder the GUI was
+            # launched from.
+            dataset = self.project_root / dataset_text
+            cfg.dataset.path = dataset
             suffix = dataset.suffix.lower().lstrip(".")
             if suffix:
                 cfg.dataset.format = suffix
                 cfg.dataset.has_header = suffix != "dat"
+
+            # Alternate paths are other formats of the same dataset, so only the
+            # chosen preset may supply them. Keeping the config's own alternates
+            # would silently load its default dataset whenever this file is missing.
+            match = self._matching_preset()
+            preset = match[1] if match is not None else {}
+            cfg.dataset.alternate_paths = [
+                self.project_root / str(path) for path in preset.get("alternate_paths") or []
+            ]
+            if "format" in preset:
+                cfg.dataset.format = str(preset["format"]).lower()
+            if "has_header" in preset:
+                cfg.dataset.has_header = bool(preset["has_header"])
+            if "delimiter" in preset:
+                cfg.dataset.delimiter = str(preset["delimiter"])
 
         cfg.preprocessing.normalization.mode = self.normalization.currentText()
         metrics = self._selected_metric_names()

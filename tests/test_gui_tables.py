@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 import pandas as pd
+import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -22,6 +23,7 @@ from synthetic_bit_sequence_majority_rule.io.configs import load_default_config 
 from synthetic_bit_sequence_majority_rule.services.analysis import (  # noqa: E402
     build_comparison_from_run,
 )
+from synthetic_bit_sequence_majority_rule.domain.errors import PipelineExecutionError  # noqa: E402
 from synthetic_bit_sequence_majority_rule.services.runner import run_pipeline  # noqa: E402
 
 
@@ -297,3 +299,60 @@ def test_saving_a_plot_writes_only_that_png_and_enables_open_output(tmp_path, mo
     assert window.last_output_dir is None
     assert not window.open_output_button.isEnabled()
 
+
+def test_a_missing_preset_file_fails_instead_of_loading_the_default_dataset() -> None:
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    window = MainWindow(Path.cwd(), restore_settings=False)
+    window.dataset_catalog = {
+        "missing_xlsx": {"path": "datasets/missing/Missing.xlsx", "alternate_paths": [], "format": "xlsx"}
+    }
+    window.dataset_path.setText(str(Path.cwd() / "datasets" / "missing" / "Missing.xlsx"))
+
+    cfg = window._config_from_controls()
+
+    # The config's own alternate (datasets/default.dat) must not leak in.
+    assert cfg.dataset.alternate_paths == []
+    with pytest.raises(PipelineExecutionError, match="not found"):
+        run_pipeline(cfg, run_id="gui_missing_dataset_test")
+
+
+def test_a_custom_dataset_path_has_no_alternates() -> None:
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    window = MainWindow(Path.cwd(), restore_settings=False)
+    window.dataset_path.setText(str(Path.cwd() / "datasets" / "nowhere.csv"))
+
+    assert window._config_from_controls().dataset.alternate_paths == []
+
+
+def test_a_preset_supplies_its_own_loading_options_and_alternates() -> None:
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    window = MainWindow(Path.cwd(), restore_settings=False)
+    preset_names = [window.dataset_preset.itemText(i) for i in range(window.dataset_preset.count())]
+    row = preset_names.index("ionosfera_csv")
+    window._on_dataset_preset_selected(row)
+
+    cfg = window._config_from_controls()
+
+    entry = window.dataset_catalog["ionosfera_csv"]
+    assert cfg.dataset.path == Path.cwd() / entry["path"]
+    assert cfg.dataset.has_header is False
+    assert cfg.dataset.alternate_paths == [Path.cwd() / path for path in entry["alternate_paths"]]
+
+
+def test_a_run_does_not_depend_on_the_launch_folder(tmp_path, monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+
+    project_root = Path.cwd()
+    window = MainWindow(project_root, restore_settings=False)
+    monkeypatch.chdir(tmp_path)
+
+    result = run_pipeline(window._config_from_controls(), run_id="gui_launch_folder_test")
+
+    assert Path(result.source_dataset.source_path) == project_root / "datasets" / "default.csv"

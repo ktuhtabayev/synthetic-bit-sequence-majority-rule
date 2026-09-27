@@ -60,9 +60,10 @@ class ProjectConfig:
         if data is None:
             return cls()
         d = _ensure_mapping(data, "project")
+        defaults = cls()
         cfg = cls(
-            name=str(d.get("name", cls.name)),
-            version=str(d.get("version", cls.version)),
+            name=str(d.get("name", defaults.name)),
+            version=str(d.get("version", defaults.version)),
         )
         cfg.validate()
         return cfg
@@ -83,10 +84,11 @@ class RunConfig:
         if data is None:
             return cls()
         d = _ensure_mapping(data, "run")
+        defaults = cls()
         cfg = cls(
-            run_name=str(d.get("run_name", cls.run_name)),
-            save_outputs=bool(d.get("save_outputs", cls.save_outputs)),
-            output_root=_to_path(d.get("output_root")) or cls.output_root,
+            run_name=str(d.get("run_name", defaults.run_name)),
+            save_outputs=bool(d.get("save_outputs", defaults.save_outputs)),
+            output_root=_to_path(d.get("output_root")) or defaults.output_root,
         )
         cfg.validate()
         return cfg
@@ -145,27 +147,27 @@ class DatasetConfig:
             return cfg
 
         d = _ensure_mapping(data, "dataset")
+        defaults = cls()
 
-        raw_alternate = d.get("alternate_paths", [str(p) for p in cls().alternate_paths])
-        alt_paths = [_to_path(p) for p in raw_alternate]
-        alt_paths = [p for p in alt_paths if p is not None]
+        raw_alternate = d.get("alternate_paths", [str(p) for p in defaults.alternate_paths])
+        alt_paths = [Path(p) for p in raw_alternate if p is not None]
 
-        raw_label_mapping = d.get("label_mapping", cls().label_mapping)
+        raw_label_mapping = d.get("label_mapping", defaults.label_mapping)
         if not isinstance(raw_label_mapping, Mapping):
             raise TypeError("dataset.label_mapping must be a mapping.")
         label_mapping: dict[int, int] = {int(k): int(v) for k, v in raw_label_mapping.items()}
 
         cfg = cls(
-            path=_to_path(d.get("path")) or cls.path,
+            path=_to_path(d.get("path")) or defaults.path,
             alternate_paths=alt_paths,
-            format=str(d.get("format", cls.format)).lower(),
-            supported_formats=[str(x).lower() for x in d.get("supported_formats", cls().supported_formats)],
-            delimiter=str(d.get("delimiter", cls.delimiter)),
-            has_header=bool(d.get("has_header", cls.has_header)),
+            format=str(d.get("format", defaults.format)).lower(),
+            supported_formats=[str(x).lower() for x in d.get("supported_formats", defaults.supported_formats)],
+            delimiter=str(d.get("delimiter", defaults.delimiter)),
+            has_header=bool(d.get("has_header", defaults.has_header)),
             object_id_column=d.get("object_id_column"),
-            object_name_prefix=str(d.get("object_name_prefix", cls.object_name_prefix)),
-            feature_columns=_to_list_of_str(d.get("feature_columns", cls().feature_columns), "dataset.feature_columns"),
-            class_column=str(d.get("class_column", cls.class_column)),
+            object_name_prefix=str(d.get("object_name_prefix", defaults.object_name_prefix)),
+            feature_columns=_to_list_of_str(d.get("feature_columns", defaults.feature_columns), "dataset.feature_columns"),
+            class_column=str(d.get("class_column", defaults.class_column)),
             label_mapping=label_mapping,
         )
         cfg.validate()
@@ -189,9 +191,10 @@ class NormalizationConfig:
             cfg.validate()
             return cfg
         d = _ensure_mapping(data, "preprocessing.normalization")
+        defaults = cls()
         cfg = cls(
-            mode=str(d.get("mode", cls.mode)).lower(),
-            apply_before_distance=bool(d.get("apply_before_distance", cls.apply_before_distance)),
+            mode=str(d.get("mode", defaults.mode)).lower(),
+            apply_before_distance=bool(d.get("apply_before_distance", defaults.apply_before_distance)),
         )
         cfg.validate()
         return cfg
@@ -212,8 +215,9 @@ class PreprocessingConfig:
             cfg.validate()
             return cfg
         d = _ensure_mapping(data, "preprocessing")
+        defaults = cls()
         cfg = cls(
-            enabled=bool(d.get("enabled", cls.enabled)),
+            enabled=bool(d.get("enabled", defaults.enabled)),
             normalization=NormalizationConfig.from_dict(d.get("normalization")),
         )
         cfg.validate()
@@ -241,7 +245,8 @@ class MetricsConfig:
             cfg.validate()
             return cfg
         d = _ensure_mapping(data, "metrics")
-        cfg = cls(enabled=[str(x).lower() for x in d.get("enabled", cls().enabled)])
+        defaults = cls()
+        cfg = cls(enabled=[str(x).lower() for x in d.get("enabled", defaults.enabled)])
         cfg.validate()
         return cfg
 
@@ -264,9 +269,10 @@ class NeighborsConfig:
             cfg.validate()
             return cfg
         d = _ensure_mapping(data, "neighbors")
+        defaults = cls()
         cfg = cls(
-            tie_break_rule=str(d.get("tie_break_rule", cls.tie_break_rule)).lower(),
-            exclude_self=bool(d.get("exclude_self", cls.exclude_self)),
+            tie_break_rule=str(d.get("tie_break_rule", defaults.tie_break_rule)).lower(),
+            exclude_self=bool(d.get("exclude_self", defaults.exclude_self)),
         )
         cfg.validate()
         return cfg
@@ -290,9 +296,10 @@ class FullKRangeConfig:
             cfg.validate()
             return cfg
         d = _ensure_mapping(data, "k_values.full")
+        defaults = cls()
         cfg = cls(
-            start=int(d.get("start", cls.start)),
-            end=str(d.get("end", cls.end)),
+            start=int(d.get("start", defaults.start)),
+            end=str(d.get("end", defaults.end)),
         )
         cfg.validate()
         return cfg
@@ -317,7 +324,8 @@ class ReducedKConfig:
             raise TypeError("k_values.reduced must be a mapping with a 'mode' field.")
 
         d = _ensure_mapping(data, "k_values.reduced")
-        cfg = cls(mode=str(d.get("mode", cls.mode)).lower())
+        defaults = cls()
+        cfg = cls(mode=str(d.get("mode", defaults.mode)).lower())
         cfg.validate()
         return cfg
 
@@ -366,9 +374,10 @@ class MajorityRuleConfig:
             cfg.validate()
             return cfg
         d = _ensure_mapping(data, "majority_rule")
+        defaults = cls()
         cfg = cls(
-            threshold=float(d.get("threshold", cls.threshold)),
-            comparison=str(d.get("comparison", cls.comparison)).lower(),
+            threshold=float(d.get("threshold", defaults.threshold)),
+            comparison=str(d.get("comparison", defaults.comparison)).lower(),
         )
         cfg.validate()
         return cfg
@@ -395,9 +404,10 @@ class BinarySequenceConfig:
             return cfg
 
         d = _ensure_mapping(data, "binary_sequence")
+        defaults = cls()
         cfg = cls(
-            use_reduced_k_values=bool(d.get("use_reduced_k_values", cls.use_reduced_k_values)),
-            reduced_order_mode=str(d.get("reduced_order_mode", cls.reduced_order_mode)).lower(),
+            use_reduced_k_values=bool(d.get("use_reduced_k_values", defaults.use_reduced_k_values)),
+            reduced_order_mode=str(d.get("reduced_order_mode", defaults.reduced_order_mode)).lower(),
         )
         cfg.validate()
         return cfg
@@ -420,9 +430,10 @@ class DecimalEncodingConfig:
             cfg.validate()
             return cfg
         d = _ensure_mapping(data, "decimal_encoding")
+        defaults = cls()
         cfg = cls(
-            enabled=bool(d.get("enabled", cls.enabled)),
-            bit_order=str(d.get("bit_order", cls.bit_order)).lower(),
+            enabled=bool(d.get("enabled", defaults.enabled)),
+            bit_order=str(d.get("bit_order", defaults.bit_order)).lower(),
         )
         cfg.validate()
         return cfg
@@ -493,10 +504,11 @@ class StatisticsConfig:
             cfg.validate()
             return cfg
         d = _ensure_mapping(data, "statistics")
+        defaults = cls()
         cfg = cls(
-            enabled=bool(d.get("enabled", cls.enabled)),
-            dominant_class_rule=str(d.get("dominant_class_rule", cls.dominant_class_rule)).lower(),
-            purity_formula=str(d.get("purity_formula", cls.purity_formula)).lower(),
+            enabled=bool(d.get("enabled", defaults.enabled)),
+            dominant_class_rule=str(d.get("dominant_class_rule", defaults.dominant_class_rule)).lower(),
+            purity_formula=str(d.get("purity_formula", defaults.purity_formula)).lower(),
             tie_rule=StatisticsTieRuleConfig.from_dict(d.get("tie_rule")),
         )
         cfg.validate()
@@ -527,16 +539,17 @@ class ExportsConfig:
             cfg.validate()
             return cfg
         d = _ensure_mapping(data, "exports")
+        defaults = cls()
         cfg = cls(
-            distance_matrices=bool(d.get("distance_matrices", cls.distance_matrices)),
-            neighbors_tables=bool(d.get("neighbors_tables", cls.neighbors_tables)),
-            full_a_matrices=bool(d.get("full_a_matrices", cls.full_a_matrices)),
-            reduced_a_matrices=bool(d.get("reduced_a_matrices", cls.reduced_a_matrices)),
-            full_b_matrices=bool(d.get("full_b_matrices", cls.full_b_matrices)),
-            reduced_b_matrices=bool(d.get("reduced_b_matrices", cls.reduced_b_matrices)),
-            stats_tables=bool(d.get("stats_tables", cls.stats_tables)),
-            final_comparison=bool(d.get("final_comparison", cls.final_comparison)),
-            excel=bool(d.get("excel", cls.excel)),
+            distance_matrices=bool(d.get("distance_matrices", defaults.distance_matrices)),
+            neighbors_tables=bool(d.get("neighbors_tables", defaults.neighbors_tables)),
+            full_a_matrices=bool(d.get("full_a_matrices", defaults.full_a_matrices)),
+            reduced_a_matrices=bool(d.get("reduced_a_matrices", defaults.reduced_a_matrices)),
+            full_b_matrices=bool(d.get("full_b_matrices", defaults.full_b_matrices)),
+            reduced_b_matrices=bool(d.get("reduced_b_matrices", defaults.reduced_b_matrices)),
+            stats_tables=bool(d.get("stats_tables", defaults.stats_tables)),
+            final_comparison=bool(d.get("final_comparison", defaults.final_comparison)),
+            excel=bool(d.get("excel", defaults.excel)),
         )
         cfg.validate()
         return cfg
