@@ -156,13 +156,6 @@ dataset_catalog:
     has_header: false
     delimiter: ","
 
-  dog_wolf_xlsx:
-    path: datasets/quantitative/dog-wolf/Dog-Wolf (42, 6, 2).xlsx
-    alternate_paths: []
-    format: xlsx
-    has_header: true
-    delimiter: ","
-
   hypertension_csv:
     path: datasets/quantitative/hypertension/Hypertension (147, 29, 2).csv
     alternate_paths:
