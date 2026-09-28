@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
@@ -16,7 +16,16 @@ from synthetic_bit_sequence_majority_rule.algorithms.majority import (
 )
 from synthetic_bit_sequence_majority_rule.domain.errors import OutputDirectoryError, OutputWriteError
 from synthetic_bit_sequence_majority_rule.io.configs import config_to_dict
-from synthetic_bit_sequence_majority_rule.services.runner import PipelineRunResult
+
+if TYPE_CHECKING:
+    # Annotation only: the io layer must not import the services layer at runtime.
+    from synthetic_bit_sequence_majority_rule.algorithms.meta_objects import (
+        NormalizationComparisonResult,
+    )
+    from synthetic_bit_sequence_majority_rule.services.runner import (
+        PipelineBranchResult,
+        PipelineRunResult,
+    )
 
 
 def ensure_output_dir(path: str | Path) -> Path:
@@ -83,18 +92,15 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
         raise OutputWriteError(path, str(exc)) from exc
 
 
-def _write_frame(path: Path, frame: pd.DataFrame) -> None:
+def _write_frame(path: Path, frame: pd.DataFrame, *, index: bool = True) -> None:
     try:
-        frame.to_csv(path, index=True, encoding="utf-8")
+        frame.to_csv(path, index=index, encoding="utf-8")
     except Exception as exc:
         raise OutputWriteError(path, str(exc)) from exc
 
 
 def _write_frame_no_index(path: Path, frame: pd.DataFrame) -> None:
-    try:
-        frame.to_csv(path, index=False, encoding="utf-8")
-    except Exception as exc:
-        raise OutputWriteError(path, str(exc)) from exc
+    _write_frame(path, frame, index=False)
 
 
 def _sheet_name(name: str) -> str:
@@ -103,7 +109,7 @@ def _sheet_name(name: str) -> str:
     return cleaned[:31] or "Sheet"
 
 
-def _write_branch_excel(path: Path, branch) -> None:
+def _write_branch_excel(path: Path, branch: PipelineBranchResult) -> None:
     try:
         with pd.ExcelWriter(path) as writer:
             branch.dataset.to_frame().to_excel(writer, sheet_name="Dataset", index=False)
@@ -127,7 +133,7 @@ def _write_branch_excel(path: Path, branch) -> None:
                     index=False,
                 )
             for metric_name, majority_result in branch.majority_results.items():
-                b_reduced_frame(majority_result).reset_index().to_excel(
+                b_reduced_frame(majority_result).to_excel(
                     writer,
                     sheet_name=_sheet_name(f"B_reduced_{metric_name}"),
                     index=False,
@@ -223,7 +229,10 @@ def write_pipeline_outputs(
     return run_dir
 
 
-def write_normalization_comparison_outputs(comparison, run_dir: str | Path) -> Path:
+def write_normalization_comparison_outputs(
+    comparison: NormalizationComparisonResult,
+    run_dir: str | Path,
+) -> Path:
     comparison_dir = ensure_output_dir(Path(run_dir) / "normalization_comparison")
     _write_frame_no_index(comparison_dir / "complexity_comparison.csv", comparison.summary_frame)
     _write_frame_no_index(comparison_dir / "meta_objects.csv", comparison.meta_objects.frame)

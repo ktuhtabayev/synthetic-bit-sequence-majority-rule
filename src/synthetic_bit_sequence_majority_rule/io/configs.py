@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -10,7 +11,8 @@ from synthetic_bit_sequence_majority_rule.domain.errors import (
     ConfigParseError,
     ConfigValidationError,
 )
-from synthetic_bit_sequence_majority_rule.domain.params import AppConfig
+from synthetic_bit_sequence_majority_rule.domain.params import AppConfig, StatisticsTieRuleConfig
+from synthetic_bit_sequence_majority_rule.paths import DEFAULT_CONFIG_PATH, EXPERIMENTS_CONFIG_PATH
 
 
 # ============================================================
@@ -62,25 +64,57 @@ def _deep_merge_dicts(base: Mapping[str, Any], override: Mapping[str, Any]) -> d
     return result
 
 
-def _normalize_dataset_section_for_dat_rules(config_dict: dict[str, Any]) -> dict[str, Any]:
+def _normalize_dataset_section_for_dat_rules(config_dict: Mapping[str, Any]) -> dict[str, Any]:
+    """DAT files are headerless matrix files, so a DAT dataset defaults to has_header: false."""
+    config_dict = dict(config_dict)
     dataset = config_dict.get("dataset")
     if not isinstance(dataset, Mapping):
         return config_dict
 
     dataset_copy = dict(dataset)
-    fmt = str(dataset_copy.get("format", "")).lower()
-
-    if fmt == "dat":
+    if str(dataset_copy.get("format", "")).lower() == "dat":
         dataset_copy.setdefault("has_header", False)
         dataset_copy.setdefault("delimiter", ",")
-        dataset_copy.setdefault("first_row_contains_shape", True)
-        dataset_copy.setdefault("last_row_contains_feature_signs", True)
-        dataset_copy.setdefault("quantitative_feature_sign", 1)
-        dataset_copy.setdefault("nominal_feature_sign", 0)
 
-    config_dict = dict(config_dict)
     config_dict["dataset"] = dataset_copy
     return config_dict
+
+
+def _read_experiments(path: str | Path) -> list[Any]:
+    raw = _read_yaml_file(path)
+
+    if "experiments" not in raw:
+        raise ConfigValidationError(
+            message="Missing required top-level key 'experiments'.",
+            section="experiments",
+        )
+
+    experiments = raw["experiments"]
+    if not isinstance(experiments, list):
+        raise ConfigValidationError(
+            message="'experiments' must be a list.",
+            section="experiments",
+        )
+    return experiments
+
+
+def _experiment_base(base_config_path: str | Path) -> dict[str, Any]:
+    """The config every experiment overrides; empty when the base file is absent."""
+    if not Path(base_config_path).exists():
+        return {}
+    return _normalize_dataset_section_for_dat_rules(_read_yaml_file(base_config_path))
+
+
+def _experiment_config(base_raw: Mapping[str, Any], experiment: Mapping[str, Any], idx: int) -> AppConfig:
+    merged = _normalize_dataset_section_for_dat_rules(_deep_merge_dicts(base_raw, experiment))
+    try:
+        return AppConfig.from_dict(merged)
+    except Exception as exc:
+        experiment_name = experiment.get("name", f"index_{idx}")
+        raise ConfigValidationError(
+            message=f"Experiment '{experiment_name}' is invalid: {exc}",
+            section=f"experiments[{idx}]",
+        ) from exc
 
 
 # ============================================================
@@ -88,8 +122,7 @@ def _normalize_dataset_section_for_dat_rules(config_dict: dict[str, Any]) -> dic
 # ============================================================
 
 def load_app_config(path: str | Path) -> AppConfig:
-    raw = dict(_read_yaml_file(path))
-    raw = _normalize_dataset_section_for_dat_rules(raw)
+    raw = _normalize_dataset_section_for_dat_rules(_read_yaml_file(path))
 
     try:
         return AppConfig.from_dict(raw)
@@ -100,11 +133,11 @@ def load_app_config(path: str | Path) -> AppConfig:
         ) from exc
 
 
-def load_default_config(path: str | Path = "configs/default.yaml") -> AppConfig:
+def load_default_config(path: str | Path = DEFAULT_CONFIG_PATH) -> AppConfig:
     return load_app_config(path)
 
 
-def load_dataset_catalog(path: str | Path = "configs/default.yaml") -> dict[str, dict[str, Any]]:
+def load_dataset_catalog(path: str | Path = DEFAULT_CONFIG_PATH) -> dict[str, dict[str, Any]]:
     """
     Return the dataset_catalog presets from the config file, keyed by preset
     name. Returns an empty dict when the section is missing.
@@ -121,50 +154,71 @@ def load_dataset_catalog(path: str | Path = "configs/default.yaml") -> dict[str,
     return presets
 
 
-def load_experiments_config(path: str | Path = "configs/experiments.yaml") -> list[AppConfig]:
-    raw = _read_yaml_file(path)
+def find_dataset_preset(
+    catalog: Mapping[str, Mapping[str, Any]],
+    dataset_path: str | Path,
+    project_root: Path,
+) -> str | None:
+    """Name of the first catalog preset whose path is dataset_path, if any."""
+    target = project_root / dataset_path
+    for name, entry in catalog.items():
+        if project_root / str(entry["path"]) == target:
+            return name
+    return None
 
-    if "experiments" not in raw:
-        raise ConfigValidationError(
-            message="Missing required top-level key 'experiments'.",
-            section="experiments",
-        )
 
-    experiments = raw["experiments"]
-    if not isinstance(experiments, list):
-        raise ConfigValidationError(
-            message="'experiments' must be a list.",
-            section="experiments",
-        )
+def apply_dataset_selection(
+    config: AppConfig,
+    dataset_path: str | Path,
+    *,
+    project_root: Path,
+    preset: Mapping[str, Any] | None = None,
+) -> None:
+    """
+    Point config.dataset at one dataset file.
 
-    default_config_path = Path("configs/default.yaml")
-    base_raw: dict[str, Any] = {}
-    if default_config_path.exists():
-        base_raw = dict(_read_yaml_file(default_config_path))
-        base_raw = _normalize_dataset_section_for_dat_rules(base_raw)
+    Relative paths resolve against project_root, so a run does not depend on
+    the current folder. The format comes from the file extension unless the
+    preset names one. Alternate paths are other formats of the same dataset,
+    so only the preset for this file may supply them: keeping the config's own
+    alternates would silently load its default dataset whenever this file is
+    missing.
+    """
+    dataset = project_root / dataset_path
+    config.dataset.path = dataset
+    suffix = dataset.suffix.lower().lstrip(".")
+    if suffix:
+        config.dataset.format = suffix
+        config.dataset.has_header = suffix != "dat"
+
+    preset = preset or {}
+    config.dataset.alternate_paths = [
+        project_root / str(path) for path in preset.get("alternate_paths") or []
+    ]
+    if "format" in preset:
+        config.dataset.format = str(preset["format"]).lower()
+    if "has_header" in preset:
+        config.dataset.has_header = bool(preset["has_header"])
+    if "delimiter" in preset:
+        config.dataset.delimiter = str(preset["delimiter"])
+
+
+def load_experiments_config(
+    path: str | Path = EXPERIMENTS_CONFIG_PATH,
+    *,
+    base_config_path: str | Path = DEFAULT_CONFIG_PATH,
+) -> list[AppConfig]:
+    experiments = _read_experiments(path)
+    base_raw = _experiment_base(base_config_path)
 
     configs: list[AppConfig] = []
-
     for idx, exp in enumerate(experiments):
         if not isinstance(exp, Mapping):
             raise ConfigValidationError(
                 message=f"Experiment at index {idx} must be a mapping.",
                 section=f"experiments[{idx}]",
             )
-
-        merged = _deep_merge_dicts(base_raw, exp)
-        merged = _normalize_dataset_section_for_dat_rules(merged)
-
-        try:
-            cfg = AppConfig.from_dict(merged)
-        except Exception as exc:
-            experiment_name = exp.get("name", f"index_{idx}")
-            raise ConfigValidationError(
-                message=f"Experiment '{experiment_name}' is invalid: {exc}",
-                section=f"experiments[{idx}]",
-            ) from exc
-
-        configs.append(cfg)
+        configs.append(_experiment_config(base_raw, exp, idx))
 
     if not configs:
         raise ConfigValidationError(
@@ -177,43 +231,13 @@ def load_experiments_config(path: str | Path = "configs/experiments.yaml") -> li
 
 def load_named_experiment(
     experiment_name: str,
-    experiments_path: str | Path = "configs/experiments.yaml",
+    experiments_path: str | Path = EXPERIMENTS_CONFIG_PATH,
+    *,
+    base_config_path: str | Path = DEFAULT_CONFIG_PATH,
 ) -> AppConfig:
-    raw = _read_yaml_file(experiments_path)
-
-    if "experiments" not in raw:
-        raise ConfigValidationError(
-            message="Missing required top-level key 'experiments'.",
-            section="experiments",
-        )
-
-    experiments = raw["experiments"]
-    if not isinstance(experiments, list):
-        raise ConfigValidationError(
-            message="'experiments' must be a list.",
-            section="experiments",
-        )
-
-    for idx, exp in enumerate(experiments):
-        if not isinstance(exp, Mapping):
-            continue
-        if str(exp.get("name", "")).strip() == experiment_name:
-            default_config_path = Path("configs/default.yaml")
-            base_raw: dict[str, Any] = {}
-            if default_config_path.exists():
-                base_raw = dict(_read_yaml_file(default_config_path))
-                base_raw = _normalize_dataset_section_for_dat_rules(base_raw)
-
-            merged = _deep_merge_dicts(base_raw, exp)
-            merged = _normalize_dataset_section_for_dat_rules(merged)
-
-            try:
-                return AppConfig.from_dict(merged)
-            except Exception as exc:
-                raise ConfigValidationError(
-                    message=f"Experiment '{experiment_name}' is invalid: {exc}",
-                    section=f"experiments[{idx}]",
-                ) from exc
+    for idx, exp in enumerate(_read_experiments(experiments_path)):
+        if isinstance(exp, Mapping) and str(exp.get("name", "")).strip() == experiment_name:
+            return _experiment_config(_experiment_base(base_config_path), exp, idx)
 
     raise ConfigValidationError(
         message=f"Experiment '{experiment_name}' was not found.",
@@ -225,88 +249,25 @@ def load_named_experiment(
 # Debug / convenience helpers
 # ============================================================
 
+def _to_plain(value: Any) -> Any:
+    """Config value -> YAML/JSON-ready value, in the shape AppConfig.from_dict reads."""
+    if isinstance(value, StatisticsTieRuleConfig):
+        # The config file spells statistics.tie_rule as a plain list.
+        return list(value.rules)
+    if is_dataclass(value) and not isinstance(value, type):
+        return {f.name: _to_plain(getattr(value, f.name)) for f in fields(value)}
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, list):
+        return [_to_plain(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _to_plain(item) for key, item in value.items()}
+    return value
+
+
 def config_to_dict(config: AppConfig) -> dict[str, Any]:
-    return {
-        "project": {
-            "name": config.project.name,
-            "version": config.project.version,
-        },
-        "run": {
-            "run_name": config.run.run_name,
-            "save_outputs": config.run.save_outputs,
-            "output_root": str(config.run.output_root),
-        },
-        "dataset": {
-            "path": str(config.dataset.path),
-            "alternate_paths": [str(p) for p in config.dataset.alternate_paths],
-            "format": config.dataset.format,
-            "supported_formats": list(config.dataset.supported_formats),
-            "delimiter": config.dataset.delimiter,
-            "has_header": config.dataset.has_header,
-            "object_id_column": config.dataset.object_id_column,
-            "object_name_prefix": config.dataset.object_name_prefix,
-            "feature_columns": list(config.dataset.feature_columns),
-            "class_column": config.dataset.class_column,
-            "label_mapping": dict(config.dataset.label_mapping),
-        },
-        "preprocessing": {
-            "enabled": config.preprocessing.enabled,
-            "normalization": {
-                "mode": config.preprocessing.normalization.mode,
-                "apply_before_distance": config.preprocessing.normalization.apply_before_distance,
-            },
-        },
-        "metrics": {
-            "enabled": list(config.metrics.enabled),
-        },
-        "neighbors": {
-            "tie_break_rule": config.neighbors.tie_break_rule,
-            "exclude_self": config.neighbors.exclude_self,
-        },
-        "k_values": {
-            "full": {
-                "start": config.k_values.full.start,
-                "end": config.k_values.full.end,
-            },
-            "reduced": {
-                "mode": config.k_values.reduced.mode,
-            },
-        },
-        "majority_rule": {
-            "threshold": config.majority_rule.threshold,
-            "comparison": config.majority_rule.comparison,
-        },
-        "binary_sequence": {
-            "use_reduced_k_values": config.binary_sequence.use_reduced_k_values,
-            "reduced_order_mode": config.binary_sequence.reduced_order_mode,
-        },
-        "decimal_encoding": {
-            "enabled": config.decimal_encoding.enabled,
-            "bit_order": config.decimal_encoding.bit_order,
-        },
-        "statistics": {
-            "enabled": config.statistics.enabled,
-            "dominant_class_rule": config.statistics.dominant_class_rule,
-            "purity_formula": config.statistics.purity_formula,
-            "tie_rule": list(config.statistics.tie_rule.rules),
-        },
-        "exports": {
-            "distance_matrices": config.exports.distance_matrices,
-            "neighbors_tables": config.exports.neighbors_tables,
-            "full_a_matrices": config.exports.full_a_matrices,
-            "reduced_a_matrices": config.exports.reduced_a_matrices,
-            "full_b_matrices": config.exports.full_b_matrices,
-            "reduced_b_matrices": config.exports.reduced_b_matrices,
-            "stats_tables": config.exports.stats_tables,
-            "final_comparison": config.exports.final_comparison,
-            "excel": config.exports.excel,
-        },
-        "notes": {
-            "problem": config.notes.problem,
-            "limitation": config.notes.limitation,
-            "switching_rule": config.notes.switching_rule,
-        },
-    }
+    """Every config section as plain data; AppConfig.from_dict reads it back to an equal config."""
+    return _to_plain(config)
 
 
 def describe_config(config: AppConfig) -> str:

@@ -1,7 +1,7 @@
 [project]
 name = "synthetic-bit-sequence-majority-rule"
 version = "0.1.0"
-description = "Synthetic binary feature construction using nearest-neighbor majority rule, metric-based comparison, Excel export, and future GUI support."
+description = "Synthetic binary feature construction using the nearest-neighbor majority rule, with metric comparison, CSV/Excel export, and a PyQt6 desktop GUI."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -29,6 +29,12 @@ dev = [
   "mypy>=1.8",
   "ipykernel>=6.29"
 ]
+
+[project.scripts]
+synthetic-bit-sequence = "synthetic_bit_sequence_majority_rule.cli:main"
+
+[project.gui-scripts]
+synthetic-bit-sequence-gui = "synthetic_bit_sequence_majority_rule.gui.app:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

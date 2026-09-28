@@ -70,6 +70,14 @@ def _ensure_numpy_2d_numeric(value: Any, name: str) -> np.ndarray:
     return arr
 
 
+_BITS = frozenset("01")
+
+
+def _is_bit_string(value: str) -> bool:
+    """True when every character is '0' or '1' (vacuously true for "")."""
+    return _BITS.issuperset(value)
+
+
 def _ensure_same_length(expected: int, actual: int, left_name: str, right_name: str) -> None:
     if expected != actual:
         raise ValueError(
@@ -153,7 +161,6 @@ class LoadedDataset:
 
     def to_frame(self) -> pd.DataFrame:
         if self.raw_frame is not None:
-            # return self.raw_frame.copy()
             df = self.raw_frame.copy()
 
             if "Object" not in df.columns:
@@ -357,18 +364,26 @@ class NeighborTableResult:
                     f"NeighborTableResult.neighbor_distances[{i}] must contain {expected_neighbors} distances."
                 )
 
-            for lbl in labels_row:
-                if lbl not in object_set:
-                    raise ValueError(f"Unknown neighbor label '{lbl}' found in row {i}.")
-                if lbl == self.object_labels[i]:
-                    raise ValueError(f"Self-neighbor found in row {i} for object '{lbl}'.")
-
-            if len(set(labels_row)) != len(labels_row):
+            # A valid row holds m - 1 distinct known labels other than its own,
+            # i.e. every other object exactly once. Only a row failing that
+            # needs the label-by-label scan that names the problem.
+            row_set = set(labels_row)
+            if not (
+                len(row_set) == expected_neighbors
+                and self.object_labels[i] not in row_set
+                and row_set <= object_set
+            ):
+                for lbl in labels_row:
+                    if lbl not in object_set:
+                        raise ValueError(f"Unknown neighbor label '{lbl}' found in row {i}.")
+                    if lbl == self.object_labels[i]:
+                        raise ValueError(f"Self-neighbor found in row {i} for object '{lbl}'.")
                 raise ValueError(f"Duplicate neighbor labels found in row {i}.")
 
-            if any(not np.isfinite(float(d)) for d in dists_row):
+            dists = np.asarray(dists_row, dtype=float)
+            if not np.isfinite(dists).all():
                 raise ValueError(f"Non-finite neighbor distance found in row {i}.")
-            if any(float(d) < -1e-12 for d in dists_row):
+            if (dists < -1e-12).any():
                 raise ValueError(f"Negative neighbor distance found in row {i}.")
 
     @property
@@ -515,7 +530,7 @@ class MajorityMatricesResult:
             if (
                 not isinstance(seq, str)
                 or len(seq) != expected_seq_len
-                or any(ch not in {"0", "1"} for ch in seq)
+                or not _is_bit_string(seq)
             ):
                 raise ValueError(
                     "Each binary sequence must be a bit-string matching reduced_k_values length."
@@ -576,7 +591,7 @@ class BinarySequenceStatsRow:
             self.binary_sequence,
             "BinarySequenceStatsRow.binary_sequence",
         )
-        if any(ch not in {"0", "1"} for ch in self.binary_sequence):
+        if not _is_bit_string(self.binary_sequence):
             raise ValueError("binary_sequence must contain only 0/1.")
         self.decimal = int(self.decimal)
         self.count_k1 = int(self.count_k1)
@@ -666,7 +681,7 @@ class FinalComparisonRow:
             self.binary_sequence,
             "FinalComparisonRow.binary_sequence",
         )
-        if any(ch not in {"0", "1"} for ch in self.binary_sequence):
+        if not _is_bit_string(self.binary_sequence):
             raise ValueError("binary_sequence must contain only 0/1.")
         self.winner_class = int(self.winner_class)
         self.decimal = int(self.decimal)
@@ -759,6 +774,3 @@ def build_loaded_dataset_from_frame(
         raw_frame=frame.copy(),
         metadata={} if metadata is None else dict(metadata),
     )
-
-
-

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from synthetic_bit_sequence_majority_rule.algorithms.majority import (
     _decimal_values_from_sequences,
+    _same_class_indicator_matrix,
     a_full_frame,
     a_reduced_frame,
     b_full_frame,
     b_reduced_frame,
+    bit_strings,
     build_majority_matrices,
     compute_formula_based_kmax,
 )
@@ -108,6 +111,99 @@ def test_majority_dynamic_kmax_a_b_sequences_and_decimal_encoding() -> None:
     assert list(a_reduced_frame(result).columns) == ["Object", "Class", "a3", "a5"]
     assert list(b_full_frame(result).columns) == ["Object", "Class", "b1", "b2", "b3", "b4", "b5"]
     assert list(b_reduced_frame(result).columns) == ["Object", "Class", "b3", "b5"]
+
+
+def _reference_neighbor_order(matrix: np.ndarray) -> list[list[int]]:
+    """The defining rule: other objects by ascending distance, ties by ascending index."""
+    n = matrix.shape[0]
+    return [
+        [col for _, col in sorted((float(matrix[row, col]), col) for col in range(n) if col != row)]
+        for row in range(n)
+    ]
+
+
+def _random_tied_distance_matrix(rng: np.random.Generator, n: int) -> np.ndarray:
+    # Few distinct integer values, so most rows contain many exact ties.
+    upper = np.triu(rng.integers(1, 4, size=(n, n)).astype(float), k=1)
+    return upper + upper.T
+
+
+def test_neighbor_order_matches_the_reference_rule_on_heavily_tied_distances() -> None:
+    rng = np.random.default_rng(7)
+    for n in (2, 3, 9, 40):
+        matrix = _random_tied_distance_matrix(rng, n)
+        labels = [f"S{i}" for i in range(1, n + 1)]
+        result = build_neighbor_table(
+            DistanceMatrixResult(metric_name="manhattan", matrix=matrix, object_labels=labels),
+            NeighborsConfig(),
+        )
+
+        expected = _reference_neighbor_order(matrix)
+        assert result.neighbor_labels == [[labels[col] for col in row] for row in expected]
+        assert result.neighbor_distances == [
+            [float(matrix[r, col]) for col in row] for r, row in enumerate(expected)
+        ]
+
+
+def test_same_class_indicators_match_the_neighbor_classes() -> None:
+    rng = np.random.default_rng(11)
+    n = 30
+    labels = [f"S{i}" for i in range(1, n + 1)]
+    y = np.array([1, 2] + rng.integers(1, 3, size=n - 2).tolist())
+    dataset = LoadedDataset(
+        source_path=None,
+        source_format="test",
+        X=rng.normal(size=(n, 3)),
+        y=y,
+        object_labels=labels,
+        feature_names=["x1", "x2", "x3"],
+        class_column="Class",
+    )
+    neighbors = build_neighbor_table(
+        DistanceMatrixResult(
+            metric_name="euclidean",
+            matrix=_random_tied_distance_matrix(rng, n),
+            object_labels=labels,
+        ),
+        NeighborsConfig(),
+    )
+
+    indicators = _same_class_indicator_matrix(dataset, neighbors)
+
+    index = {label: i for i, label in enumerate(labels)}
+    expected = [
+        [1 if y[index[label]] == y[row] else 0 for label in neighbors.neighbor_labels[row]]
+        for row in range(n)
+    ]
+    assert indicators.tolist() == expected
+
+
+def test_neighbor_table_names_the_first_invalid_label() -> None:
+    labels = ["S1", "S2", "S3"]
+    distances = [[1.0, 2.0]] * 3
+
+    def table(rows: list[list[str]]) -> NeighborTableResult:
+        return NeighborTableResult(
+            metric_name="euclidean",
+            object_labels=labels,
+            neighbor_labels=rows,
+            neighbor_distances=distances,
+        )
+
+    with pytest.raises(ValueError, match="Unknown neighbor label 'S9' found in row 0"):
+        table([["S2", "S9"], ["S1", "S3"], ["S1", "S2"]])
+    with pytest.raises(ValueError, match="Self-neighbor found in row 1 for object 'S2'"):
+        table([["S2", "S3"], ["S2", "S3"], ["S1", "S2"]])
+    with pytest.raises(ValueError, match="Duplicate neighbor labels found in row 2"):
+        table([["S2", "S3"], ["S1", "S3"], ["S1", "S1"]])
+
+
+def test_bit_strings_render_each_row_in_column_order() -> None:
+    assert bit_strings(np.array([[1, 0, 1], [0, 0, 0]])) == ["101", "000"]
+    assert bit_strings(np.array([[1.0, 0.0]])) == ["10"]
+    assert bit_strings(np.zeros((2, 0), dtype=int)) == ["", ""]
+    with pytest.raises(ValueError, match="0/1"):
+        bit_strings(np.array([[0, 2]]))
 
 
 def test_decimal_encoding_supports_123_bit_sequences() -> None:

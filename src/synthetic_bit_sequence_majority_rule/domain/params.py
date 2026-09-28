@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence, cast
 
 
 NormalizationMode = Literal["none", "minmax", "zscore"]
@@ -113,12 +113,12 @@ class DatasetConfig:
     def validate(self) -> None:
         if not str(self.path):
             raise ValueError("dataset.path cannot be empty.")
+        if not self.supported_formats:
+            raise ValueError("dataset.supported_formats cannot be empty.")
         if self.format not in self.supported_formats:
             raise ValueError(
                 f"dataset.format='{self.format}' is not in supported_formats={self.supported_formats}."
             )
-        if not self.supported_formats:
-            raise ValueError("dataset.supported_formats cannot be empty.")
         if self.format == "csv" and not self.delimiter:
             raise ValueError("dataset.delimiter cannot be empty for csv format.")
         if not self.object_name_prefix.strip():
@@ -193,7 +193,7 @@ class NormalizationConfig:
         d = _ensure_mapping(data, "preprocessing.normalization")
         defaults = cls()
         cfg = cls(
-            mode=str(d.get("mode", defaults.mode)).lower(),
+            mode=cast(NormalizationMode, str(d.get("mode", defaults.mode)).lower()),
             apply_before_distance=bool(d.get("apply_before_distance", defaults.apply_before_distance)),
         )
         cfg.validate()
@@ -246,7 +246,7 @@ class MetricsConfig:
             return cfg
         d = _ensure_mapping(data, "metrics")
         defaults = cls()
-        cfg = cls(enabled=[str(x).lower() for x in d.get("enabled", defaults.enabled)])
+        cfg = cls(enabled=[cast(DistanceMetricName, str(x).lower()) for x in d.get("enabled", defaults.enabled)])
         cfg.validate()
         return cfg
 
@@ -271,7 +271,7 @@ class NeighborsConfig:
         d = _ensure_mapping(data, "neighbors")
         defaults = cls()
         cfg = cls(
-            tie_break_rule=str(d.get("tie_break_rule", defaults.tie_break_rule)).lower(),
+            tie_break_rule=cast(TieBreakRule, str(d.get("tie_break_rule", defaults.tie_break_rule)).lower()),
             exclude_self=bool(d.get("exclude_self", defaults.exclude_self)),
         )
         cfg.validate()
@@ -377,7 +377,7 @@ class MajorityRuleConfig:
         defaults = cls()
         cfg = cls(
             threshold=float(d.get("threshold", defaults.threshold)),
-            comparison=str(d.get("comparison", defaults.comparison)).lower(),
+            comparison=cast(MajorityComparison, str(d.get("comparison", defaults.comparison)).lower()),
         )
         cfg.validate()
         return cfg
@@ -433,7 +433,7 @@ class DecimalEncodingConfig:
         defaults = cls()
         cfg = cls(
             enabled=bool(d.get("enabled", defaults.enabled)),
-            bit_order=str(d.get("bit_order", defaults.bit_order)).lower(),
+            bit_order=cast(BitOrder, str(d.get("bit_order", defaults.bit_order)).lower()),
         )
         cfg.validate()
         return cfg
@@ -507,8 +507,14 @@ class StatisticsConfig:
         defaults = cls()
         cfg = cls(
             enabled=bool(d.get("enabled", defaults.enabled)),
-            dominant_class_rule=str(d.get("dominant_class_rule", defaults.dominant_class_rule)).lower(),
-            purity_formula=str(d.get("purity_formula", defaults.purity_formula)).lower(),
+            dominant_class_rule=cast(
+                DominantClassRule,
+                str(d.get("dominant_class_rule", defaults.dominant_class_rule)).lower(),
+            ),
+            purity_formula=cast(
+                PurityFormula,
+                str(d.get("purity_formula", defaults.purity_formula)).lower(),
+            ),
             tie_rule=StatisticsTieRuleConfig.from_dict(d.get("tie_rule")),
         )
         cfg.validate()

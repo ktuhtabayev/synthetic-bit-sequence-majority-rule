@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import re
+from collections.abc import Callable, Iterable, Mapping
 from numbers import Real
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, TypeVar
 
+import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
@@ -40,9 +43,12 @@ from synthetic_bit_sequence_majority_rule.gui.synthetic_features import (
     build_synthetic_decimal_frame,
 )
 from synthetic_bit_sequence_majority_rule.io.configs import (
+    apply_dataset_selection,
+    find_dataset_preset,
     load_dataset_catalog,
     load_default_config,
 )
+from synthetic_bit_sequence_majority_rule.paths import PROJECT_ROOT
 from synthetic_bit_sequence_majority_rule.services.analysis import (
     FullAnalysisResult,
     analysis_output_dir,
@@ -91,7 +97,12 @@ except ImportError as exc:  # pragma: no cover - depends on local GUI install
     raise RuntimeError("PyQt6 is required to launch the desktop GUI.") from exc
 
 
-def _display_value(value: object, decimals: int) -> str:
+logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+
+def _display_value(value: Any, decimals: int) -> str:
     if pd.isna(value):
         return ""
     if isinstance(value, float):
@@ -99,7 +110,7 @@ def _display_value(value: object, decimals: int) -> str:
     return str(value)
 
 
-def _natural_sort_key(value: object) -> tuple[object, ...]:
+def _natural_sort_key(value: Any) -> tuple[object, ...]:
     if pd.isna(value):
         return (2, ())
     if isinstance(value, Real):
@@ -118,24 +129,43 @@ class DataFrameTableModel(QAbstractTableModel):
 
     def __init__(self, frame: pd.DataFrame, *, decimals: int = 6) -> None:
         super().__init__()
-        self._source_frame = frame.reset_index(drop=True).copy()
-        self.frame = self._source_frame.copy()
+        # reset_index returns a new frame, and sorting replaces self.frame rather
+        # than editing it, so neither needs another copy.
+        self._source_frame = frame.reset_index(drop=True)
+        self.frame = self._source_frame
         self.decimals = decimals
 
+    @property
+    def frame(self) -> pd.DataFrame:
+        return self._frame
+
+    @frame.setter
+    def frame(self, frame: pd.DataFrame) -> None:
+        # Qt asks for cells one at a time, often several times each, so cells
+        # are read from one array per column: an O(1) lookup that yields the
+        # same scalars as frame.iat. Columns are fetched on first use, since a
+        # wide table only ever shows a few of them.
+        self._frame = frame
+        self._columns: list[np.ndarray | None] = [None] * frame.shape[1]
+        self._row_count, self._column_count = frame.shape
+
+    def _column(self, position: int) -> np.ndarray:
+        values = self._columns[position]
+        if values is None:
+            values = self._columns[position] = self._frame.iloc[:, position].to_numpy()
+        return values
+
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:  # noqa: N802
-        return 0 if parent.isValid() else len(self.frame)
+        return 0 if parent.isValid() else self._row_count
 
     def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:  # noqa: N802
-        return 0 if parent.isValid() else len(self.frame.columns)
+        return 0 if parent.isValid() else self._column_count
 
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
         if role == Qt.ItemDataRole.DisplayRole:
-            return _display_value(
-                self.frame.iat[index.row(), index.column()],
-                self.decimals,
-            )
+            return _display_value(self._column(index.column())[index.row()], self.decimals)
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return Qt.AlignmentFlag.AlignCenter
         return None
@@ -154,7 +184,9 @@ class DataFrameTableModel(QAbstractTableModel):
 
     def sort(self, column: int, order: Qt.SortOrder = Qt.SortOrder.AscendingOrder) -> None:
         if column == -1:
-            sorted_frame = self._source_frame.copy()
+            if self._frame is self._source_frame:
+                return  # already in source order
+            sorted_frame = self._source_frame
         elif 0 <= column < self.columnCount():
             values = self.frame.iloc[:, column].tolist()
             positions = sorted(
@@ -171,9 +203,31 @@ class DataFrameTableModel(QAbstractTableModel):
         self.layoutChanged.emit()
 
 
+class _FitOnShowTableView(QTableView):
+    """
+    Resizes its columns to their contents the first time it is shown.
+
+    Measuring every cell is the costly part of building a table, and a Run
+    builds dozens of tables across tabs the user may never open.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._fit_pending = False
+
+    def fit_columns_when_shown(self) -> None:
+        self._fit_pending = True
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if self._fit_pending:
+            self._fit_pending = False
+            self.resizeColumnsToContents()
+        super().showEvent(event)
+
+
 def frame_to_table(frame: pd.DataFrame, *, decimals: int = 6) -> QTableView:
     model = DataFrameTableModel(frame, decimals=decimals)
-    table = QTableView()
+    table = _FitOnShowTableView()
     table.setModel(model)
     table.setAlternatingRowColors(True)
     table.setWordWrap(False)
@@ -186,13 +240,14 @@ def frame_to_table(frame: pd.DataFrame, *, decimals: int = 6) -> QTableView:
     table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
     horizontal = table.horizontalHeader()
+    vertical = table.verticalHeader()
+    assert horizontal is not None and vertical is not None  # a QTableView always has both
     horizontal.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
     horizontal.setStretchLastSection(False)
-    vertical = table.verticalHeader()
     vertical.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
     vertical.setDefaultSectionSize(26)
     if model.rowCount() * model.columnCount() <= 50_000:
-        table.resizeColumnsToContents()
+        table.fit_columns_when_shown()
     else:
         for col_idx, column in enumerate(model.frame.columns):
             table.setColumnWidth(col_idx, min(180, max(72, len(str(column)) * 9 + 24)))
@@ -206,28 +261,78 @@ def _distance_frame(distance_result) -> pd.DataFrame:
     return frame.rename(columns={"index": "Object"})
 
 
-class AnalysisWorker(QThread):
-    """Run the full analysis off the GUI thread so the window stays responsive."""
+def _document_tabs(pages: Iterable[tuple[str, QWidget]]) -> QTabWidget:
+    tabs = QTabWidget()
+    tabs.setDocumentMode(True)
+    for title, page in pages:
+        tabs.addTab(page, title)
+    return tabs
 
-    finished_ok = pyqtSignal(object)  # FullAnalysisResult; nothing is written until Export
+
+def _metric_tabs(results: Mapping[str, T], build_page: Callable[[T], QWidget]) -> QTabWidget:
+    """One tab per metric, titled with the metric name."""
+    return _document_tabs(
+        (metric_name.title(), build_page(result)) for metric_name, result in results.items()
+    )
+
+
+def _to_frame_table(result) -> QTableView:
+    return frame_to_table(result.to_frame())
+
+
+def _majority_views(result) -> QTabWidget:
+    return _document_tabs(
+        [
+            ("Same Class", frame_to_table(same_class_indicator_frame(result))),
+            ("A Full", frame_to_table(a_full_frame(result))),
+            ("A Reduced", frame_to_table(a_reduced_frame(result))),
+            ("B Full", frame_to_table(b_full_frame(result))),
+            ("B Reduced", frame_to_table(b_reduced_frame(result))),
+        ]
+    )
+
+
+def _canvas_widget(figure: Figure) -> QWidget:
+    figure.tight_layout()
+    canvas = FigureCanvasQTAgg(figure)
+    widget = QWidget()
+    layout = QVBoxLayout()
+    layout.addWidget(canvas, 1)
+    widget.setLayout(layout)
+    canvas.draw_idle()
+    return widget
+
+
+class TaskWorker(QThread):
+    """Run one task off the GUI thread so the window stays responsive."""
+
+    finished_ok = pyqtSignal(object)  # the task's return value
     failed = pyqtSignal(str)
 
-    def __init__(self, config, project_root: Path, parent=None) -> None:
+    def __init__(self, task: Callable[[], object], description: str, parent=None) -> None:
         super().__init__(parent)
-        self._config = config
-        self._project_root = project_root
+        self._task = task
+        self._description = description
 
     def run(self) -> None:  # pragma: no cover - thread entry point
         try:
-            analysis = run_full_analysis(
-                self._config,
-                project_root=self._project_root,
-                write_outputs=False,
-            )
+            result = self._task()
         except Exception as exc:
+            logger.exception("%s failed.", self._description)
             self.failed.emit(str(exc))
         else:
-            self.finished_ok.emit(analysis)
+            self.finished_ok.emit(result)
+
+
+class AnalysisWorker(TaskWorker):
+    """Run the full analysis; it emits a FullAnalysisResult and writes nothing until Export."""
+
+    def __init__(self, config, project_root: Path, parent=None) -> None:
+        super().__init__(
+            lambda: run_full_analysis(config, project_root=project_root, write_outputs=False),
+            "Analysis run",
+            parent,
+        )
 
 
 def run_output_dir(result: PipelineRunResult, project_root: Path) -> Path:
@@ -249,7 +354,7 @@ class MainWindow(QMainWindow):
         self.stability_plot_canvas: FigureCanvasQTAgg | None = None
         self.stability_conclusion: QTextEdit | None = None
         self.meta_object_figures: dict[str, Figure] = {}
-        self.analysis_worker: AnalysisWorker | None = None
+        self.active_worker: TaskWorker | None = None  # the Run or Export in progress
         self.restore_settings = restore_settings
         self.settings = QSettings("synthetic-bit-sequence-majority-rule", "DesktopApp")
         self.dataset_catalog = load_dataset_catalog(self.config_path)
@@ -297,8 +402,8 @@ class MainWindow(QMainWindow):
         self.run_button.setObjectName("primaryButton")
         self.run_button.clicked.connect(self.run_current_pipeline)
 
-        export_button = QPushButton("Export")
-        export_button.clicked.connect(self.export_last_result)
+        self.export_button = QPushButton("Export")
+        self.export_button.clicked.connect(self.export_last_result)
 
         self.open_output_button = QPushButton("Open Output Folder")
         self.open_output_button.setEnabled(False)
@@ -318,7 +423,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.normalization)
         controls.addWidget(self.metrics_button)
         controls.addWidget(self.run_button)
-        controls.addWidget(export_button)
+        controls.addWidget(self.export_button)
         controls.addWidget(self.open_output_button)
         controls.addWidget(self.progress_bar)
 
@@ -353,6 +458,15 @@ class MainWindow(QMainWindow):
         self.settings.setValue("window/geometry", self.saveGeometry())
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if self.active_worker is not None and self.active_worker.isRunning():
+            # Destroying a running QThread aborts the process, and neither a run
+            # nor an export can stop midway, so let it finish before the window goes.
+            self.status_text.setPlainText("Finishing the current task before closing...")
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            try:
+                self.active_worker.wait()
+            finally:
+                QApplication.restoreOverrideCursor()
         if self.restore_settings:
             self._save_state()
         super().closeEvent(event)
@@ -367,18 +481,18 @@ class MainWindow(QMainWindow):
     def _on_dataset_path_edited(self, _text: str) -> None:
         self._sync_preset_to_path()
 
-    def _matching_preset(self) -> tuple[int, dict[str, Any]] | None:
-        """The dropdown row and catalog entry whose path is the current path, if any."""
+    def _matching_preset_name(self) -> str | None:
+        """The catalog preset whose path is the current path, if any."""
         current = self.dataset_path.text().strip()
-        for row, entry in enumerate(self.dataset_catalog.values(), start=1):
-            if current == str(self.project_root / str(entry["path"])):
-                return row, entry
-        return None
+        if not current:
+            return None
+        return find_dataset_preset(self.dataset_catalog, current, self.project_root)
 
     def _sync_preset_to_path(self) -> None:
         """Show the matching preset name for the current path, else Custom."""
-        match = self._matching_preset()
-        self.dataset_preset.setCurrentIndex(match[0] if match is not None else 0)
+        name = self._matching_preset_name()
+        row = self.dataset_preset.findText(name) if name is not None else -1
+        self.dataset_preset.setCurrentIndex(max(row, 0))
 
     def _selected_metric_names(self) -> list[str]:
         return [
@@ -414,29 +528,13 @@ class MainWindow(QMainWindow):
         cfg = load_default_config(self.config_path)
         dataset_text = self.dataset_path.text().strip()
         if dataset_text:
-            # Absolute paths, so a Run does not depend on the folder the GUI was
-            # launched from.
-            dataset = self.project_root / dataset_text
-            cfg.dataset.path = dataset
-            suffix = dataset.suffix.lower().lstrip(".")
-            if suffix:
-                cfg.dataset.format = suffix
-                cfg.dataset.has_header = suffix != "dat"
-
-            # Alternate paths are other formats of the same dataset, so only the
-            # chosen preset may supply them. Keeping the config's own alternates
-            # would silently load its default dataset whenever this file is missing.
-            match = self._matching_preset()
-            preset = match[1] if match is not None else {}
-            cfg.dataset.alternate_paths = [
-                self.project_root / str(path) for path in preset.get("alternate_paths") or []
-            ]
-            if "format" in preset:
-                cfg.dataset.format = str(preset["format"]).lower()
-            if "has_header" in preset:
-                cfg.dataset.has_header = bool(preset["has_header"])
-            if "delimiter" in preset:
-                cfg.dataset.delimiter = str(preset["delimiter"])
+            preset_name = self._matching_preset_name()
+            apply_dataset_selection(
+                cfg,
+                dataset_text,
+                project_root=self.project_root,
+                preset=self.dataset_catalog[preset_name] if preset_name is not None else None,
+            )
 
         cfg.preprocessing.normalization.mode = self.normalization.currentText()
         metrics = self._selected_metric_names()
@@ -444,8 +542,38 @@ class MainWindow(QMainWindow):
         cfg.validate()
         return cfg
 
+    def _busy(self) -> bool:
+        return self.active_worker is not None and self.active_worker.isRunning()
+
+    def _start_worker(
+        self,
+        worker: TaskWorker,
+        on_success: Callable[[Any], None],
+        on_failure: Callable[[str], None],
+        status: str,
+    ) -> None:
+        """Run a Run or Export task in the background, one at a time."""
+        self.run_button.setEnabled(False)
+        self.export_button.setEnabled(False)
+        self.progress_bar.setVisible(True)
+        self.status_text.setPlainText(status)
+
+        worker.finished_ok.connect(on_success)
+        worker.failed.connect(on_failure)
+        worker.finished.connect(self._on_worker_done)
+        # Each task gets a fresh worker; release it once its thread ends.
+        worker.finished.connect(worker.deleteLater)
+        self.active_worker = worker
+        worker.start()
+
+    def _on_worker_done(self) -> None:
+        self.active_worker = None  # its deleteLater is pending
+        self.run_button.setEnabled(True)
+        self.export_button.setEnabled(True)
+        self.progress_bar.setVisible(False)
+
     def run_current_pipeline(self) -> None:
-        if self.analysis_worker is not None and self.analysis_worker.isRunning():
+        if self._busy():
             return
         try:
             cfg = self._config_from_controls()
@@ -454,15 +582,12 @@ class MainWindow(QMainWindow):
             self.status_text.setPlainText(str(exc))
             return
 
-        self.run_button.setEnabled(False)
-        self.progress_bar.setVisible(True)
-        self.status_text.setPlainText("Running pipeline and None vs MinMax comparison...")
-
-        self.analysis_worker = AnalysisWorker(cfg, self.project_root, parent=self)
-        self.analysis_worker.finished_ok.connect(self._on_analysis_finished)
-        self.analysis_worker.failed.connect(self._on_analysis_failed)
-        self.analysis_worker.finished.connect(self._on_analysis_done)
-        self.analysis_worker.start()
+        self._start_worker(
+            AnalysisWorker(cfg, self.project_root, parent=self),
+            self._on_analysis_finished,
+            self._on_analysis_failed,
+            "Running pipeline and None vs MinMax comparison...",
+        )
 
     def _on_analysis_finished(self, analysis: FullAnalysisResult) -> None:
         self.last_result = analysis.pipeline
@@ -476,63 +601,26 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Run failed", message)
         self.status_text.setPlainText(message)
 
-    def _on_analysis_done(self) -> None:
-        self.run_button.setEnabled(True)
-        self.progress_bar.setVisible(False)
-
     def populate_tabs(self, result: PipelineRunResult) -> None:
         self.tabs.clear()
         branch = result.selected_branch
         self.tabs.addTab(frame_to_table(branch.dataset.to_frame()), "Dataset")
-        self.tabs.addTab(self._distance_tabs(branch), "Distances")
-        self.tabs.addTab(self._neighbor_tabs(branch), "Neighbors")
-        self.tabs.addTab(self._majority_tabs(branch), "Majority A/B")
-        self.tabs.addTab(self._simple_metric_tabs(branch.statistics_results, lambda item: item.to_frame()), "Statistics")
-        self.tabs.addTab(self._simple_metric_tabs(branch.membership_results, lambda item: item.to_frame()), "Membership")
-        self.tabs.addTab(self._simple_metric_tabs(branch.stability_results, lambda item: item.to_frame()), "Stability")
+        self.tabs.addTab(
+            _metric_tabs(branch.distance_results, lambda item: frame_to_table(_distance_frame(item))),
+            "Distances",
+        )
+        self.tabs.addTab(
+            _metric_tabs(branch.neighbor_results, lambda item: frame_to_table(neighbor_combined_frame(item))),
+            "Neighbors",
+        )
+        self.tabs.addTab(_metric_tabs(branch.majority_results, _majority_views), "Majority A/B")
+        self.tabs.addTab(_metric_tabs(branch.statistics_results, _to_frame_table), "Statistics")
+        self.tabs.addTab(_metric_tabs(branch.membership_results, _to_frame_table), "Membership")
+        self.tabs.addTab(_metric_tabs(branch.stability_results, _to_frame_table), "Stability")
         self.tabs.addTab(self._stability_plot_tab(), "Stability Plot")
         self.tabs.addTab(self._synthetic_features_space_tab(branch), "Synthetic Features Space")
         self.tabs.addTab(self._meta_objects_tab(branch), "Meta Objects")
         self.tabs.addTab(frame_to_table(branch.final_comparison.to_frame()), "Final Comparison")
-
-    def _simple_metric_tabs(
-        self,
-        mapping: dict[str, object],
-        frame_builder: Callable[[object], pd.DataFrame],
-    ) -> QTabWidget:
-        tabs = QTabWidget()
-        tabs.setDocumentMode(True)
-        for metric_name, item in mapping.items():
-            tabs.addTab(frame_to_table(frame_builder(item)), metric_name.title())
-        return tabs
-
-    def _distance_tabs(self, branch: PipelineBranchResult) -> QTabWidget:
-        tabs = QTabWidget()
-        tabs.setDocumentMode(True)
-        for metric_name, distance_result in branch.distance_results.items():
-            tabs.addTab(frame_to_table(_distance_frame(distance_result)), metric_name.title())
-        return tabs
-
-    def _neighbor_tabs(self, branch: PipelineBranchResult) -> QTabWidget:
-        tabs = QTabWidget()
-        tabs.setDocumentMode(True)
-        for metric_name, neighbor_result in branch.neighbor_results.items():
-            tabs.addTab(frame_to_table(neighbor_combined_frame(neighbor_result)), metric_name.title())
-        return tabs
-
-    def _majority_tabs(self, branch: PipelineBranchResult) -> QTabWidget:
-        tabs = QTabWidget()
-        tabs.setDocumentMode(True)
-        for metric_name, majority_result in branch.majority_results.items():
-            metric_tabs = QTabWidget()
-            metric_tabs.setDocumentMode(True)
-            metric_tabs.addTab(frame_to_table(same_class_indicator_frame(majority_result)), "Same Class")
-            metric_tabs.addTab(frame_to_table(a_full_frame(majority_result)), "A Full")
-            metric_tabs.addTab(frame_to_table(a_reduced_frame(majority_result)), "A Reduced")
-            metric_tabs.addTab(frame_to_table(b_full_frame(majority_result)), "B Full")
-            metric_tabs.addTab(frame_to_table(b_reduced_frame(majority_result)), "B Reduced")
-            tabs.addTab(metric_tabs, metric_name.title())
-        return tabs
 
     def _stability_plot_tab(self) -> QWidget:
         widget = QWidget()
@@ -625,11 +713,22 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "No plot", "Run the pipeline first.")
             return
 
-        self.last_output_dir = run_output_dir(self.last_result, self.project_root)
-        target_dir = self.last_output_dir / "selected"
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / "stability_plot.png"
-        self.stability_plot_figure.savefig(target_path, dpi=160, bbox_inches="tight")
+        self._save_figure(self.stability_plot_figure, "selected", "stability_plot.png")
+
+    def _save_figure(self, figure: Figure, subfolder: str, filename: str) -> None:
+        """Save one plot into this run's export folder, which need not be exported yet."""
+        assert self.last_result is not None
+        output_dir = run_output_dir(self.last_result, self.project_root)
+        target_path = output_dir / subfolder / filename
+        try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            figure.savefig(target_path, dpi=160, bbox_inches="tight")
+        except Exception as exc:
+            logger.exception("Saving plot %s failed.", target_path)
+            QMessageBox.critical(self, "Save failed", str(exc))
+            return
+
+        self.last_output_dir = output_dir
         self.open_output_button.setEnabled(True)
         self._refresh_status()
         QMessageBox.information(self, "Plot saved", str(target_path))
@@ -637,20 +736,15 @@ class MainWindow(QMainWindow):
     def _synthetic_features_space_tab(self, branch: PipelineBranchResult) -> QWidget:
         widget = QWidget()
 
-        metric_tabs = QTabWidget()
-        metric_tabs.setDocumentMode(True)
-        for metric_name, majority_result in branch.majority_results.items():
-            kind_tabs = QTabWidget()
-            kind_tabs.setDocumentMode(True)
-            kind_tabs.addTab(
-                frame_to_table(build_synthetic_binary_frame(majority_result)),
-                "Binary",
-            )
-            kind_tabs.addTab(
-                frame_to_table(build_synthetic_decimal_frame(majority_result)),
-                "Decimal",
-            )
-            metric_tabs.addTab(kind_tabs, metric_name.title())
+        metric_tabs = _metric_tabs(
+            branch.majority_results,
+            lambda result: _document_tabs(
+                [
+                    ("Binary", frame_to_table(build_synthetic_binary_frame(result))),
+                    ("Decimal", frame_to_table(build_synthetic_decimal_frame(result))),
+                ]
+            ),
+        )
 
         layout = QVBoxLayout()
         layout.addWidget(metric_tabs, 1)
@@ -675,18 +769,17 @@ class MainWindow(QMainWindow):
         controls.addWidget(save_3d_button)
         controls.addStretch(1)
 
-        tabs = QTabWidget()
-        tabs.setDocumentMode(True)
-        tabs.addTab(frame_to_table(meta_objects.frame), "Based on Stability")
-        tabs.addTab(
-            frame_to_table(branch.complexity_result.to_frame()),
-            "Complexity C(Q)",
+        tabs = _document_tabs(
+            [
+                ("Based on Stability", frame_to_table(meta_objects.frame)),
+                ("Complexity C(Q)", frame_to_table(branch.complexity_result.to_frame())),
+                ("Applying PCA (2D)", self._pca_table_widget(pca_2d)),
+                ("Applying PCA (3D)", self._pca_table_widget(pca_3d)),
+                ("Visualization (2D)", self._pca_plot_widget(pca_2d, "pca_2d")),
+                ("Visualization (3D)", self._pca_plot_widget(pca_3d, "pca_3d")),
+                ("None vs MinMax", self._normalization_comparison_widget()),
+            ]
         )
-        tabs.addTab(self._pca_table_widget(pca_2d), "Applying PCA (2D)")
-        tabs.addTab(self._pca_table_widget(pca_3d), "Applying PCA (3D)")
-        tabs.addTab(self._pca_plot_widget(pca_2d, "pca_2d"), "Visualization (2D)")
-        tabs.addTab(self._pca_plot_widget(pca_3d, "pca_3d"), "Visualization (3D)")
-        tabs.addTab(self._normalization_comparison_widget(), "None vs MinMax")
 
         layout = QVBoxLayout()
         layout.addLayout(controls)
@@ -715,22 +808,24 @@ class MainWindow(QMainWindow):
         controls.addWidget(save_3d_button)
         controls.addStretch(1)
 
-        tabs = QTabWidget()
-        tabs.setDocumentMode(True)
-        tabs.addTab(frame_to_table(comparison.summary_frame), "Summary")
-        tabs.addTab(
-            self._normalization_comparison_plot_widget(
-                comparison.pca_2d,
-                "normalization_comparison_2d",
-            ),
-            "PCA 2D",
-        )
-        tabs.addTab(
-            self._normalization_comparison_plot_widget(
-                comparison.pca_3d,
-                "normalization_comparison_3d",
-            ),
-            "PCA 3D",
+        tabs = _document_tabs(
+            [
+                ("Summary", frame_to_table(comparison.summary_frame)),
+                (
+                    "PCA 2D",
+                    self._normalization_comparison_plot_widget(
+                        comparison.pca_2d,
+                        "normalization_comparison_2d",
+                    ),
+                ),
+                (
+                    "PCA 3D",
+                    self._normalization_comparison_plot_widget(
+                        comparison.pca_3d,
+                        "normalization_comparison_3d",
+                    ),
+                ),
+            ]
         )
 
         widget = QWidget()
@@ -752,7 +847,8 @@ class MainWindow(QMainWindow):
         figure = Figure(figsize=(7.5, 4.8), facecolor=THEME["figure_bg"])
         self.meta_object_figures[figure_key] = figure
         is_3d = result.requested_components == 3
-        axis = figure.add_subplot(111, projection="3d") if is_3d else figure.add_subplot(111)
+        # Any: the stubs type add_subplot as 2-D Axes even with projection="3d".
+        axis: Any = figure.add_subplot(111, projection="3d") if is_3d else figure.add_subplot(111)
         axis.set_facecolor(THEME["axes_bg"])
 
         frame = result.frame
@@ -776,11 +872,11 @@ class MainWindow(QMainWindow):
                 )
             axis.set_zlabel("PC 3")
         else:
-            points = [
+            points_2d = [
                 (float(row["PC1"]), float(row["PC2"]))
                 for _, row in frame.iterrows()
             ]
-            offsets = label_offsets_for_points(points)
+            offsets = label_offsets_for_points(points_2d)
             axis.scatter(frame["PC1"], frame["PC2"], s=70)
             for idx, (_, row) in enumerate(frame.iterrows()):
                 axis.annotate(
@@ -825,15 +921,7 @@ class MainWindow(QMainWindow):
                         axis.set_ylim(-1.0, 1.0)
                     elif column == "PC3" and is_3d:
                         axis.set_zlim(-1.0, 1.0)
-        figure.tight_layout()
-
-        canvas = FigureCanvasQTAgg(figure)
-        widget = QWidget()
-        layout = QVBoxLayout()
-        layout.addWidget(canvas, 1)
-        widget.setLayout(layout)
-        canvas.draw_idle()
-        return widget
+        return _canvas_widget(figure)
 
     def _normalization_comparison_plot_widget(
         self,
@@ -846,7 +934,8 @@ class MainWindow(QMainWindow):
         figure = Figure(figsize=(7.5, 4.8), facecolor=THEME["figure_bg"])
         self.meta_object_figures[figure_key] = figure
         is_3d = result.requested_components == 3
-        axis = figure.add_subplot(111, projection="3d") if is_3d else figure.add_subplot(111)
+        # Any: the stubs type add_subplot as 2-D Axes even with projection="3d".
+        axis: Any = figure.add_subplot(111, projection="3d") if is_3d else figure.add_subplot(111)
         axis.set_facecolor(THEME["axes_bg"])
         frame = result.frame
         metrics = frame["Metric"].drop_duplicates().astype(str).tolist()
@@ -898,15 +987,7 @@ class MainWindow(QMainWindow):
                 axis.text2D(0.01, 0.01, note_text, transform=axis.transAxes, fontsize=9)
             else:
                 axis.text(0.01, 0.01, note_text, transform=axis.transAxes, fontsize=9)
-        figure.tight_layout()
-
-        canvas = FigureCanvasQTAgg(figure)
-        widget = QWidget()
-        layout = QVBoxLayout()
-        layout.addWidget(canvas, 1)
-        widget.setLayout(layout)
-        canvas.draw_idle()
-        return widget
+        return _canvas_widget(figure)
 
     def _message_widget(self, message: str) -> QWidget:
         text = QTextEdit()
@@ -927,17 +1008,12 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "No plot", "Run the pipeline first.")
             return
 
-        self.last_output_dir = run_output_dir(self.last_result, self.project_root)
-        if figure_key.startswith("normalization_comparison_"):
-            target_dir = self.last_output_dir / "normalization_comparison"
-        else:
-            target_dir = self.last_output_dir / "selected"
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / f"{figure_key}.png"
-        figure.savefig(target_path, dpi=160, bbox_inches="tight")
-        self.open_output_button.setEnabled(True)
-        self._refresh_status()
-        QMessageBox.information(self, "Plot saved", str(target_path))
+        subfolder = (
+            "normalization_comparison"
+            if figure_key.startswith("normalization_comparison_")
+            else "selected"
+        )
+        self._save_figure(figure, subfolder, f"{figure_key}.png")
 
     def _refresh_status(self) -> None:
         if self.last_result is not None:
@@ -962,18 +1038,31 @@ class MainWindow(QMainWindow):
         if self.last_result is None or self.normalization_comparison is None:
             QMessageBox.information(self, "Nothing to export", "Run the pipeline first.")
             return
-        try:
-            self.last_output_dir = write_analysis_outputs(
-                self.last_result,
-                self.normalization_comparison,
-                self.project_root,
-                gui_export=True,
-            )
-            self.open_output_button.setEnabled(True)
-            self.status_text.setPlainText(self._status_summary(self.last_result, self.last_output_dir))
-            QMessageBox.information(self, "Export complete", str(self.last_output_dir))
-        except Exception as exc:
-            QMessageBox.critical(self, "Export failed", str(exc))
+        if self._busy():
+            return
+
+        result, comparison = self.last_result, self.normalization_comparison
+        project_root = self.project_root
+        self._start_worker(
+            TaskWorker(
+                lambda: write_analysis_outputs(result, comparison, project_root, gui_export=True),
+                "Export",
+                parent=self,
+            ),
+            self._on_export_finished,
+            self._on_export_failed,
+            "Exporting results...",
+        )
+
+    def _on_export_finished(self, output_dir: Path) -> None:
+        self.last_output_dir = output_dir
+        self.open_output_button.setEnabled(True)
+        self._refresh_status()
+        QMessageBox.information(self, "Export complete", str(output_dir))
+
+    def _on_export_failed(self, message: str) -> None:
+        self._refresh_status()
+        QMessageBox.critical(self, "Export failed", message)
 
     def open_output_folder(self) -> None:
         if self.last_output_dir is None:
@@ -983,7 +1072,8 @@ class MainWindow(QMainWindow):
 
 
 def main() -> None:  # pragma: no cover - GUI entrypoint
-    project_root = Path(__file__).resolve().parents[3]
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    project_root = PROJECT_ROOT
     app = QApplication([])
     app.setOrganizationName("synthetic-bit-sequence-majority-rule")
     app.setApplicationName("DesktopApp")

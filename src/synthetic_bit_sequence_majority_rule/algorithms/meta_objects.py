@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -240,7 +241,7 @@ def near_zero_axis_notes(
 
 
 def label_offsets_for_points(
-    points: list[tuple[float, ...]],
+    points: Sequence[tuple[float, ...]],
     *,
     tolerance: float = PCA_OVERLAP_TOLERANCE,
 ) -> list[tuple[int, int]]:

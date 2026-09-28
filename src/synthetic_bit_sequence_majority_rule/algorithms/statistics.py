@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from synthetic_bit_sequence_majority_rule.algorithms.majority import bit_strings
 from synthetic_bit_sequence_majority_rule.domain.errors import StatisticsComputationError
 from synthetic_bit_sequence_majority_rule.domain.params import StatisticsConfig
 from synthetic_bit_sequence_majority_rule.domain.schema import (
@@ -21,7 +23,9 @@ from synthetic_bit_sequence_majority_rule.domain.schema import (
 class MembershipRow:
     metric_name: str
     representation: str
-    k_values: list[int]
+    # One tuple shared by every row of a representation; a table holds many rows
+    # per representation, so per-row copies would dominate its memory.
+    k_values: tuple[int, ...]
     binary_sequence: str
     decimal: int
     count_k1: int
@@ -118,22 +122,22 @@ class ComplexityTableResult:
         )
 
 
-def format_representation(k_values: list[int]) -> str:
+# Long prefixes show only their ends, so these read just the first and last k
+# (they run once per membership and stability row).
+def format_representation(k_values: Sequence[int]) -> str:
     if not k_values:
         return ""
-    labels = [f"b{k}" for k in k_values]
-    if len(labels) <= 2:
-        return ", ".join(labels)
-    return f"{labels[0]}, ..., {labels[-1]}"
+    if len(k_values) <= 2:
+        return ", ".join(f"b{k}" for k in k_values)
+    return f"b{k_values[0]}, ..., b{k_values[-1]}"
 
 
-def format_k_values(k_values: list[int]) -> str:
+def format_k_values(k_values: Sequence[int]) -> str:
     if not k_values:
         return ""
-    values = [str(k) for k in k_values]
-    if len(values) <= 2:
-        return ", ".join(values)
-    return f"{values[0]}, ..., {values[-1]}"
+    if len(k_values) <= 2:
+        return ", ".join(str(k) for k in k_values)
+    return f"{k_values[0]}, ..., {k_values[-1]}"
 
 
 def _ensure_majority_result(result: MajorityMatricesResult) -> MajorityMatricesResult:
@@ -278,10 +282,6 @@ def build_multiple_sequence_statistics(
     }
 
 
-def _prefix_sequence(row: np.ndarray, length: int) -> str:
-    return "".join(str(int(bit)) for bit in row[:length])
-
-
 def _membership_value(
     count_k1: int,
     count_k2: int,
@@ -322,27 +322,39 @@ def build_membership_table(result: MajorityMatricesResult) -> MembershipTableRes
     rows: list[MembershipRow] = []
 
     try:
+        bits = result.b_reduced.astype(np.int64)
+        in_k1 = result.classes.astype(int) == 1
+        # An object's sequence for the first `width` reduced k values is a prefix
+        # of its full sequence.
+        full_sequences = bit_strings(bits)
+
+        # Objects sharing a prefix are one group. Groups are numbered in ascending
+        # order of their prefix, so appending a bit as rank * 2 + bit keeps the
+        # numbering in ascending order of the longer prefix: ascending decimal,
+        # which for equal-length bit strings is also ascending string order.
+        rank = np.zeros(len(full_sequences), dtype=np.int64)
         for width in range(1, len(result.reduced_k_values) + 1):
-            k_values = result.reduced_k_values[:width]
+            k_values = tuple(result.reduced_k_values[:width])
             representation = "_".join(f"b{k}" for k in k_values)
-            grouped: dict[str, dict[str, int]] = {}
 
-            for bits, cls in zip(result.b_reduced.astype(int), result.classes.astype(int)):
-                sequence = _prefix_sequence(bits, width)
-                grouped.setdefault(sequence, {"count_k1": 0, "count_k2": 0})
-                if int(cls) == 1:
-                    grouped[sequence]["count_k1"] += 1
-                else:
-                    grouped[sequence]["count_k2"] += 1
+            _, first_member, rank = np.unique(
+                rank * 2 + bits[:, width - 1],
+                return_index=True,
+                return_inverse=True,
+            )
+            group_count = len(first_member)
+            counts_k1 = np.bincount(rank[in_k1], minlength=group_count).tolist()
+            counts_k2 = np.bincount(rank[~in_k1], minlength=group_count).tolist()
 
-            for sequence in sorted(grouped.keys(), key=lambda item: (int(item, 2), item)):
-                count_k1 = grouped[sequence]["count_k1"]
-                count_k2 = grouped[sequence]["count_k2"]
+            for group, member in enumerate(first_member.tolist()):
+                sequence = full_sequences[member][:width]
+                count_k1 = counts_k1[group]
+                count_k2 = counts_k2[group]
                 rows.append(
                     MembershipRow(
                         metric_name=result.metric_name,
                         representation=representation,
-                        k_values=list(k_values),
+                        k_values=k_values,
                         binary_sequence=sequence,
                         decimal=int(sequence, 2) if sequence else 0,
                         count_k1=count_k1,

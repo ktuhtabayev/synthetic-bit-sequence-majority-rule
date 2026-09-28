@@ -180,24 +180,19 @@ def _same_class_indicator_matrix(
     """
     object_to_index = {label: idx for idx, label in enumerate(dataset.object_labels)}
 
-    indicators = np.zeros((dataset.n_objects, dataset.n_objects - 1), dtype=int)
+    try:
+        neighbor_indices = np.asarray(
+            [[object_to_index[label] for label in row] for row in neighbor_result.neighbor_labels],
+            dtype=np.intp,
+        ).reshape(dataset.n_objects, dataset.n_objects - 1)
+    except KeyError as exc:
+        raise MajorityRuleError(
+            metric=neighbor_result.metric_name,
+            reason=f"Unknown neighbor label '{exc.args[0]}'.",
+        ) from exc
 
-    for row_idx, _target_label in enumerate(dataset.object_labels):
-        target_class = int(dataset.y[row_idx])
-
-        for rank_idx, neighbor_label in enumerate(neighbor_result.neighbor_labels[row_idx]):
-            if neighbor_label not in object_to_index:
-                raise MajorityRuleError(
-                    metric=neighbor_result.metric_name,
-                    reason=f"Unknown neighbor label '{neighbor_label}'.",
-                )
-
-            neighbor_idx = object_to_index[neighbor_label]
-            neighbor_class = int(dataset.y[neighbor_idx])
-
-            indicators[row_idx, rank_idx] = 1 if neighbor_class == target_class else 0
-
-    return indicators
+    classes = dataset.y.astype(int)
+    return (classes[neighbor_indices] == classes[:, np.newaxis]).astype(int)
 
 
 # ============================================================
@@ -248,8 +243,27 @@ def _majority_binary_from_a(
     )
 
 
+def bit_strings(bits: np.ndarray) -> list[str]:
+    """
+    One '0'/'1' string per row of a 0/1 matrix, in column order.
+
+    A prefix of a row's string is the bit string of that row's first columns,
+    so callers that need every prefix width slice these instead of rebuilding.
+    """
+    matrix = np.asarray(bits).astype(np.uint8, copy=False)
+    if matrix.ndim != 2:
+        raise ValueError("bits must be a 2D array.")
+    if matrix.size and matrix.max() > 1:
+        raise ValueError("bits must contain only 0/1 values.")
+    if matrix.shape[1] == 0:
+        return [""] * matrix.shape[0]
+    # ASCII '0' is 48, so bit + 48 is its character; each row's bytes form one string.
+    chars = np.ascontiguousarray(matrix + ord("0"))
+    return [row.decode("ascii") for row in chars.view(f"S{matrix.shape[1]}").ravel()]
+
+
 def _binary_sequences_from_b_reduced(b_reduced: np.ndarray) -> list[str]:
-    return ["".join(str(int(bit)) for bit in row) for row in b_reduced]
+    return bit_strings(b_reduced)
 
 
 def _binary_to_decimal(sequence: str, bit_order: str) -> int:
@@ -426,4 +440,3 @@ def b_full_frame(result: MajorityMatricesResult) -> pd.DataFrame:
 
 def b_reduced_frame(result: MajorityMatricesResult) -> pd.DataFrame:
     return result.b_reduced_frame().reset_index()
-

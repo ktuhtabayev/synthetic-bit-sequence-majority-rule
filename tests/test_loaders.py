@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
 
-from synthetic_bit_sequence_majority_rule.io.loaders import load_dataset_from_path
+from synthetic_bit_sequence_majority_rule.domain.params import DatasetConfig
+from synthetic_bit_sequence_majority_rule.io.loaders import (
+    load_dataset_from_path,
+    try_alternate_dataset_paths,
+)
 
 
 def test_default_csv_and_dat_load_with_same_core_data() -> None:
@@ -84,3 +89,38 @@ def test_ionosfera_metadata_treats_all_features_as_quantitative() -> None:
     assert dataset.metadata["nominal_feature_indices"] == []
     assert dataset.metadata["all_features_quantitative"] is True
     assert dataset.metadata["has_nominal_features"] is False
+
+
+def test_headered_csv_whose_last_row_looks_like_feature_signs_loads_as_a_table(tmp_path: Path) -> None:
+    # The last data row is all 0/1, which alone would suggest a feature-sign
+    # row; the text header shows this is a headered table.
+    path = tmp_path / "binary_features.csv"
+    path.write_text(
+        "x1,x2,x3,Class\n"
+        "1,0,1,2\n"
+        "0,1,1,2\n"
+        "0,1,0,1\n",
+        encoding="utf-8",
+    )
+
+    dataset = load_dataset_from_path(path, feature_columns=["x1", "x2", "x3"])
+
+    assert dataset.n_objects == 3
+    assert dataset.class_counts == {1: 1, 2: 2}
+    assert np.allclose(dataset.X[2], [0.0, 1.0, 0.0])
+
+
+def test_loading_an_alternate_after_a_failure_is_logged(caplog) -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    config = DatasetConfig(
+        path=project_root / "datasets" / "missing.csv",
+        alternate_paths=[project_root / "datasets" / "default.dat"],
+        supported_formats=["csv", "dat"],
+    )
+
+    with caplog.at_level(logging.WARNING, logger="synthetic_bit_sequence_majority_rule.io.loaders"):
+        dataset = try_alternate_dataset_paths(config)
+
+    assert Path(dataset.source_path).name == "default.dat"
+    assert "Loaded alternate dataset" in caplog.text
+    assert "missing.csv" in caplog.text

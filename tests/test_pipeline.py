@@ -3,9 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
+from synthetic_bit_sequence_majority_rule.domain.errors import PipelineExecutionError
 from synthetic_bit_sequence_majority_rule.io.configs import load_default_config
-from synthetic_bit_sequence_majority_rule.services.runner import run_pipeline
+from synthetic_bit_sequence_majority_rule.services.runner import (
+    run_none_minmax_comparison,
+    run_pipeline,
+)
 
 
 def test_default_pipeline_smoke() -> None:
@@ -49,3 +54,47 @@ def test_ionosfera_pipeline_supports_long_binary_sequences() -> None:
     assert any(value > np.iinfo(np.int64).max for value in majority.decimal_values)
     assert branch.statistics_results["euclidean"].rows
     assert len(branch.stability_results["euclidean"].rows) == 123
+
+
+def test_comparison_reuses_the_raw_branch_and_matches_a_fresh_comparison() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    cfg = load_default_config(project_root / "configs" / "default.yaml")
+    assert cfg.preprocessing.normalization.mode == "none"
+
+    result = run_pipeline(cfg, run_id="reuse_test")
+    reused = run_none_minmax_comparison(cfg, result)
+    fresh = run_none_minmax_comparison(cfg)
+
+    assert reused.branches["raw"] is result.branches["raw"]
+    assert fresh.branches["raw"] is not result.branches["raw"]
+    for branch in ("raw", "normalized"):
+        for metric in cfg.enabled_metrics:
+            assert reused.branches[branch].stability_results[metric].to_frame().equals(
+                fresh.branches[branch].stability_results[metric].to_frame()
+            )
+
+
+def test_a_changed_config_does_not_reuse_the_earlier_raw_branch() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    cfg = load_default_config(project_root / "configs" / "default.yaml")
+    result = run_pipeline(cfg, run_id="reuse_guard_test")
+
+    changed = load_default_config(project_root / "configs" / "default.yaml")
+    changed.metrics.enabled = ["euclidean"]
+    comparison = run_none_minmax_comparison(changed, result)
+
+    assert comparison.branches["raw"] is not result.branches["raw"]
+    assert set(comparison.branches["raw"].majority_results) == {"euclidean"}
+
+
+def test_pipeline_failures_name_their_stage() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    cfg = load_default_config(project_root / "configs" / "default.yaml")
+    cfg.dataset.path = project_root / "datasets" / "missing.csv"
+    cfg.dataset.alternate_paths = []
+
+    with pytest.raises(PipelineExecutionError) as excinfo:
+        run_pipeline(cfg, run_id="stage_test")
+
+    assert excinfo.value.stage == "load_dataset"
+    assert "Dataset file not found" in str(excinfo.value)

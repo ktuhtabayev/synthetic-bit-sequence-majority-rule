@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
-import re
 
 import numpy as np
 import pandas as pd
@@ -23,6 +24,8 @@ from synthetic_bit_sequence_majority_rule.domain.schema import (
     LoadedDataset,
     build_object_labels,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -105,6 +108,15 @@ def _try_parse_int_tokens(tokens: list[str]) -> list[int] | None:
         return [int(float(tok)) for tok in tokens]
     except Exception:
         return None
+
+
+def _is_numeric_row(tokens: list[str]) -> bool:
+    try:
+        for tok in tokens:
+            float(tok)
+    except ValueError:
+        return False
+    return True
 
 
 def _is_shape_row(tokens: list[str]) -> bool:
@@ -212,15 +224,18 @@ def _feature_sign_metadata(feature_signs: list[int]) -> tuple[list[int], list[in
     return quantitative, nominal
 
 
-def _detect_matrix_style_text_file(path: Path, delimiter: str) -> bool:
+def _detect_matrix_style_text_file(lines: list[str], delimiter: str) -> bool:
     """
-    Detect whether a text file should be treated as matrix-style.
+    Detect whether a text file's lines should be treated as matrix-style.
 
     Strong signals:
     - first row is shape row (m, n, c)
     - last row is feature-sign row
+
+    A first row with non-numeric tokens is a header, which the matrix-style
+    parser cannot read, so such a file is never matrix-style.
     """
-    lines = [line for line in _read_text_lines(path) if line.strip()]
+    lines = [line for line in lines if line.strip()]
     if not lines:
         return False
 
@@ -232,6 +247,9 @@ def _detect_matrix_style_text_file(path: Path, delimiter: str) -> bool:
 
     if _is_shape_row(rows[0]):
         return True
+
+    if not _is_numeric_row(rows[0]):
+        return False
 
     if _is_feature_sign_row(rows[-1], expected_n_features=None):
         return True
@@ -248,6 +266,7 @@ def _parse_matrix_style_dataset(
     delimiter: str,
     label_mapping: Mapping[int, int],
     object_name_prefix: str,
+    lines: list[str] | None = None,
 ) -> LoadedDataset:
     """
     General loader for matrix-style datasets.
@@ -259,8 +278,12 @@ def _parse_matrix_style_dataset(
     Data rows are assumed to contain:
     - n feature values
     - 1 class value
+
+    lines are the file's lines when the caller has already read it.
     """
-    lines = [line for line in _read_text_lines(path) if line.strip()]
+    if lines is None:
+        lines = _read_text_lines(path)
+    lines = [line for line in lines if line.strip()]
     if not lines:
         raise DatasetParseError(path, "File is empty.")
 
@@ -461,12 +484,14 @@ def _load_csv(path: Path, dataset_config: DatasetConfig) -> LoadedDataset:
     has_header=False forces the matrix-style parse for CSVs whose first
     row is plain data, since a headered parse would swallow that row.
     """
-    if not dataset_config.has_header or _detect_matrix_style_text_file(path, dataset_config.delimiter):
+    lines = _read_text_lines(path)
+    if not dataset_config.has_header or _detect_matrix_style_text_file(lines, dataset_config.delimiter):
         return _parse_matrix_style_dataset(
             path=path,
             delimiter=dataset_config.delimiter,
             label_mapping=dataset_config.label_mapping,
             object_name_prefix=dataset_config.object_name_prefix,
+            lines=lines,
         )
 
     # Otherwise try headered CSV.
@@ -567,9 +592,18 @@ def try_alternate_dataset_paths(dataset_config: DatasetConfig) -> LoadedDataset:
         )
 
         try:
-            return load_dataset(cfg)
+            dataset = load_dataset(cfg)
         except Exception as exc:
             errors.append(f"{candidate_path}: {exc}")
+            continue
+
+        if errors:
+            logger.warning(
+                "Loaded alternate dataset %s after failures:\n%s",
+                candidate_path,
+                "\n".join(errors),
+            )
+        return dataset
 
     raise DatasetParseError(
         dataset_config.path,

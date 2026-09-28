@@ -159,6 +159,66 @@ def test_membership_and_stability_use_compact_prefix_display_labels() -> None:
     ]
 
 
+def _reference_membership_rows(result: MajorityMatricesResult) -> list[tuple]:
+    """The defining rule: group objects by each prefix string, rows in ascending decimal."""
+    total_k1 = int((result.classes == 1).sum())
+    total_k2 = int((result.classes == 2).sum())
+    rows = []
+    for width in range(1, len(result.reduced_k_values) + 1):
+        grouped: dict[str, list[int]] = {}
+        for bits, cls in zip(result.b_reduced.astype(int), result.classes.astype(int)):
+            counts = grouped.setdefault("".join(str(int(bit)) for bit in bits[:width]), [0, 0])
+            counts[0 if cls == 1 else 1] += 1
+        for sequence in sorted(grouped, key=lambda item: (int(item, 2), item)):
+            n1, n2 = grouped[sequence]
+            f1, f2 = n1 / total_k1, n2 / total_k2
+            membership = 0.0 if f1 + f2 == 0.0 else f1 / (f1 + f2)
+            rows.append((width, sequence, int(sequence, 2), n1, n2, n1 + n2, membership))
+    return rows
+
+
+def test_membership_table_matches_the_reference_prefix_grouping() -> None:
+    rng = np.random.default_rng(3)
+    n, width = 80, 11
+    classes = np.array([1, 2] + rng.integers(1, 3, size=n - 2).tolist())
+    # Correlated bits give a realistic mix of shared and unique prefixes.
+    b_reduced = (rng.random((n, width)) < np.linspace(0.2, 0.8, width)).astype(int)
+    b_reduced[: n // 4] = b_reduced[0]
+    sequences = ["".join(map(str, row)) for row in b_reduced]
+    result = MajorityMatricesResult(
+        metric_name="canberra",
+        object_labels=[f"S{i}" for i in range(1, n + 1)],
+        classes=classes,
+        same_class_indicators=np.ones((n, n - 1), dtype=int),
+        a_full=np.ones((n, 2 * width + 1), dtype=int),
+        a_reduced=np.ones((n, width), dtype=int),
+        b_full=np.ones((n, 2 * width + 1), dtype=int),
+        b_reduced=b_reduced,
+        full_k_values=list(range(1, 2 * width + 2)),
+        reduced_k_values=list(range(3, 2 * width + 2, 2)),
+        binary_sequences=sequences,
+        decimal_values=np.array([int(seq, 2) for seq in sequences]),
+    )
+
+    membership = build_membership_table(result)
+
+    actual = [
+        (
+            len(row.k_values),
+            row.binary_sequence,
+            row.decimal,
+            row.count_k1,
+            row.count_k2,
+            row.frequency,
+            row.membership,
+        )
+        for row in membership.rows
+    ]
+    # Exact equality, floats included: the arithmetic must be unchanged.
+    assert actual == _reference_membership_rows(result)
+    assert all(type(row.count_k1) is int and type(row.decimal) is int for row in membership.rows)
+
+
 def _stability_result(metric: str, values: list[float]) -> StabilityTableResult:
     return StabilityTableResult(
         metric_name=metric,

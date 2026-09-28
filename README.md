@@ -57,6 +57,28 @@ Run the full command pipeline:
 .\.venv\Scripts\python.exe scripts\run_synthetic_bit_sequence.py
 ```
 
+Without options the command runs `configs/default.yaml` exactly as configured.
+Options change one run without editing the config file:
+
+```powershell
+# List the dataset presets from dataset_catalog
+.\.venv\Scripts\python.exe scripts\run_synthetic_bit_sequence.py --list-presets
+
+# Run a preset with other normalization and metrics, writing nothing
+.\.venv\Scripts\python.exe scripts\run_synthetic_bit_sequence.py --preset ionosfera_csv --normalization minmax --metrics euclidean,canberra --no-save
+
+# Run any dataset file; a file listed in dataset_catalog also gets its preset options
+.\.venv\Scripts\python.exe scripts\run_synthetic_bit_sequence.py --dataset "datasets\quantitative\dog-wolf\Dog-Wolf (42, 6, 2).dat"
+```
+
+`--output-root` redirects the run folder, and `-v` logs each pipeline stage's
+duration (and the full traceback when a run fails). Paths inside the config file
+are relative to the repository root, so the command works from any folder; paths
+given on the command line are relative to the folder the command is typed in.
+`python -m synthetic_bit_sequence_majority_rule` is equivalent, and reinstalling
+with `pip install -e ".[dev]"` adds the `synthetic-bit-sequence` and
+`synthetic-bit-sequence-gui` commands to the environment.
+
 Launch the GUI:
 
 ```powershell
@@ -110,8 +132,8 @@ The PyQt6 app is a local research dashboard. It provides:
 - dataset preset dropdown (from `dataset_catalog` in `configs/default.yaml`) plus a free path picker
 - normalization selector: none, minmax, zscore
 - metric selector: Euclidean, Chebyshev, Canberra, Manhattan
-- Run action that executes in a background thread with a busy indicator
-- Export and Open Output Folder actions
+- Run and Export actions that execute in a background thread with a busy indicator
+- Open Output Folder action
 - window geometry persists between sessions; dataset, normalization, and metrics reset to the configured defaults
 - grouped result tabs:
   - Dataset
@@ -378,6 +400,12 @@ Core package modules:
 algorithms/     distances, neighbors, majority, statistics, meta objects
 domain/         schemas, config dataclasses, custom errors
 gui/            PyQt6 desktop application
-io/             config loading, dataset loading, output writers
+io/             config and dataset-preset loading, dataset loading, output writers
 services/       end-to-end runner, full-analysis orchestration, report helpers
+cli.py          command-line runner behind scripts/run_synthetic_bit_sequence.py
+paths.py        repository locations (project root, default config)
 ```
+
+Imports point one way: `domain` <- `algorithms` <- `io` <- `services` <- `gui`
+and `cli`. The GUI and CLI share `services` and the preset logic in
+`io/configs.py`, so both run a dataset the same way.

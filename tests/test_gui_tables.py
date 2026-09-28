@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 
 import pandas as pd
 import pytest
@@ -12,7 +13,9 @@ from pathlib import Path
 from PyQt6.QtCore import Qt  # noqa: E402
 from PyQt6.QtWidgets import QApplication, QHeaderView, QMessageBox  # noqa: E402
 
+from synthetic_bit_sequence_majority_rule.gui import app as gui_app  # noqa: E402
 from synthetic_bit_sequence_majority_rule.gui.app import (  # noqa: E402
+    _display_value,
     AnalysisWorker,
     MainWindow,
     frame_to_table,
@@ -273,12 +276,25 @@ def test_export_writes_the_run_folder_and_enables_open_output(tmp_path, monkeypa
     assert expected_dir == tmp_path / "gui" / window.last_result.run_id
 
     window.export_last_result()
+    # Export runs in the background with Run and Export disabled until it ends.
+    assert not window.run_button.isEnabled() and not window.export_button.isEnabled()
+    _wait_for_background_task(window)
 
     assert window.last_output_dir == expected_dir
     assert (expected_dir / "run_info.json").is_file()
     assert (expected_dir / "normalization_comparison" / "meta_objects.csv").is_file()
     assert window.open_output_button.isEnabled()
+    assert window.run_button.isEnabled() and window.export_button.isEnabled()
     assert f"Output folder: {expected_dir}" in window.status_text.toPlainText()
+
+
+def _wait_for_background_task(window: MainWindow) -> None:
+    worker = window.active_worker
+    assert worker is not None
+    assert worker.wait(60_000)
+    # Deliver the worker's queued signals to the window.
+    QApplication.processEvents()
+    assert window.active_worker is None
 
 
 def test_saving_a_plot_writes_only_that_png_and_enables_open_output(tmp_path, monkeypatch) -> None:
@@ -356,3 +372,91 @@ def test_a_run_does_not_depend_on_the_launch_folder(tmp_path, monkeypatch) -> No
     result = run_pipeline(window._config_from_controls(), run_id="gui_launch_folder_test")
 
     assert Path(result.source_dataset.source_path) == project_root / "datasets" / "default.csv"
+
+
+def test_closing_the_window_waits_for_a_running_analysis(monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+    release = threading.Event()
+
+    def slow_analysis(*args, **kwargs):
+        release.wait(timeout=10)
+        raise RuntimeError("stopped by test")
+
+    monkeypatch.setattr(gui_app, "run_full_analysis", slow_analysis)
+    monkeypatch.setattr(QMessageBox, "critical", lambda *args, **kwargs: None)
+    window = MainWindow(Path.cwd(), restore_settings=False)
+    window.run_current_pipeline()
+    worker = window.active_worker
+    assert worker is not None and worker.isRunning()
+
+    threading.Timer(0.2, release.set).start()
+    window.close()
+
+    # Closing blocked until the thread finished instead of destroying it mid-run.
+    assert worker.isFinished()
+
+
+def test_a_failed_plot_save_is_reported_instead_of_raising(tmp_path, monkeypatch) -> None:
+    window = _finished_window(tmp_path, monkeypatch)
+    errors = []
+    monkeypatch.setattr(QMessageBox, "critical", lambda *args: errors.append(args[-1]))
+    monkeypatch.setattr(
+        window.stability_plot_figure,
+        "savefig",
+        lambda *args, **kwargs: (_ for _ in ()).throw(PermissionError("read-only folder")),
+    )
+
+    window.save_stability_plot()
+
+    assert errors == ["read-only folder"]
+    assert window.last_output_dir is None
+    assert not window.open_output_button.isEnabled()
+
+
+def test_table_cells_show_the_same_text_as_the_frame_values_before_and_after_sorting() -> None:
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+    frame = pd.DataFrame(
+        {
+            "Object": ["S2", "S10", "S1"],
+            "Distance": [0.1234567891, float("nan"), 2.0],
+            "Count": [3, 1, 2],
+            "Decimal": [(1 << 123) - 1, 5, 0],  # Python ints beyond int64
+            "Flag": [True, False, True],
+        }
+    )
+    table = frame_to_table(frame)
+    model = table.model()
+
+    def shown() -> list[list[str]]:
+        return [
+            [model.data(model.index(row, col)) for col in range(model.columnCount())]
+            for row in range(model.rowCount())
+        ]
+
+    def expected() -> list[list[str]]:
+        current = model.frame
+        return [
+            [_display_value(current.iat[row, col], 6) for col in range(current.shape[1])]
+            for row in range(current.shape[0])
+        ]
+
+    assert shown() == expected()
+    assert shown()[0][1] == "0.123457" and shown()[1][1] == "" and shown()[0][3] == str((1 << 123) - 1)
+    table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+    assert model.frame["Object"].tolist() == ["S1", "S2", "S10"]
+    assert shown() == expected()
+
+
+def test_small_tables_fit_their_columns_when_first_shown() -> None:
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+    table = frame_to_table(pd.DataFrame({"Label": ["a fairly long cell value that needs room"]}))
+    width_before = table.columnWidth(0)
+
+    table.show()
+    QApplication.processEvents()
+
+    assert table.columnWidth(0) > width_before
+    table.close()

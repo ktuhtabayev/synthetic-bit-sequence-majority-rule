@@ -60,6 +60,29 @@ def test_synthetic_decimal_prefix_table() -> None:
     assert frame.loc[1, "b3, ..., b21"] == 1008
 
 
+def test_synthetic_frames_match_prefix_strings_and_exact_decimals_for_long_sequences() -> None:
+    rng = np.random.default_rng(5)
+    width = 90  # prefixes beyond 64 bits must stay exact
+    b_reduced = rng.integers(0, 2, size=(6, width))
+    result = SimpleNamespace(
+        object_labels=[f"S{i}" for i in range(1, 7)],
+        b_reduced=b_reduced,
+        reduced_k_values=list(range(3, 3 + 2 * width, 2)),
+        classes=np.array([1, 1, 1, 2, 2, 2]),
+    )
+
+    binary = build_synthetic_binary_frame(result)
+    decimal = build_synthetic_decimal_frame(result)
+
+    value_columns = list(binary.columns[1:-1])
+    assert value_columns == list(decimal.columns[1:-1])
+    assert len(value_columns) == width
+    for prefix_width, column in enumerate(value_columns, start=1):
+        expected = ["".join(str(bit) for bit in row[:prefix_width]) for row in b_reduced]
+        assert binary[column].tolist() == expected
+        assert decimal[column].tolist() == [int(sequence, 2) for sequence in expected]
+
+
 def make_stability_result(metric_name: str, values: list[float]) -> StabilityTableResult:
     reduced_k = [3, 5, 7]
     return StabilityTableResult(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from synthetic_bit_sequence_majority_rule.domain.errors import NeighborConstructionError
@@ -68,29 +69,17 @@ def build_neighbor_table(
             reason="At least two objects are required to build neighbors.",
         )
 
-    neighbor_labels: list[list[str]] = []
-    neighbor_distances: list[list[float]] = []
+    # A stable sort orders each row by ascending distance and breaks ties by
+    # ascending original index. The matrix is validated as finite float, so
+    # this is exactly the (distance, index) ordering.
+    order = np.argsort(matrix, axis=1, kind="stable")
+    if neighbors_config.exclude_self:
+        # Every row holds its own index exactly once, so dropping it leaves m - 1.
+        not_self = order != np.arange(n_objects)[:, np.newaxis]
+        order = order[not_self].reshape(n_objects, n_objects - 1)
 
-    for row_idx in range(n_objects):
-        pairs: list[tuple[float, int, str]] = []
-
-        for col_idx in range(n_objects):
-            if neighbors_config.exclude_self and row_idx == col_idx:
-                continue
-
-            distance_value = float(matrix[row_idx, col_idx])
-            label = object_labels[col_idx]
-            pairs.append((distance_value, col_idx, label))
-
-        # primary key: distance
-        # secondary key: original index (stable tie-break)
-        pairs.sort(key=lambda x: (x[0], x[1]))
-
-        row_neighbor_labels = [item[2] for item in pairs]
-        row_neighbor_distances = [item[0] for item in pairs]
-
-        neighbor_labels.append(row_neighbor_labels)
-        neighbor_distances.append(row_neighbor_distances)
+    neighbor_labels: list[list[str]] = np.asarray(object_labels, dtype=object)[order].tolist()
+    neighbor_distances: list[list[float]] = np.take_along_axis(matrix, order, axis=1).tolist()
 
     return NeighborTableResult(
         metric_name=result.metric_name,
@@ -130,12 +119,14 @@ def neighbor_combined_frame(result: NeighborTableResult) -> pd.DataFrame:
 
     Useful for export and quick comparison with Excel.
     """
-    n_neighbors = result.neighbor_count
-    data: dict[str, list[Any]] = {"Object": list(result.object_labels)}
+    shape = (result.n_objects, result.neighbor_count)
+    labels = np.asarray(result.neighbor_labels, dtype=object).reshape(shape)
+    distances = np.asarray(result.neighbor_distances, dtype=float).reshape(shape)
+    data: dict[str, Any] = {"Object": list(result.object_labels)}
 
-    for idx in range(n_neighbors):
+    for idx in range(result.neighbor_count):
         rank = idx + 1
-        data[f"NN{rank}"] = [row[idx] for row in result.neighbor_labels]
-        data[f"d{rank}"] = [row[idx] for row in result.neighbor_distances]
+        data[f"NN{rank}"] = labels[:, idx]
+        data[f"d{rank}"] = distances[:, idx]
 
     return pd.DataFrame(data)
